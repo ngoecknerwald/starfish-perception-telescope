@@ -1,46 +1,36 @@
-Neil's overall competition battle plan, with thoughts written down in order from easiest to most intense.
+Neil's overall competition battle plan.
 
-Zeroth, let's take the last 20% of each video and set it aside from training. We will call this 
-our internal cross-validation set. When we have a production-worthy model we can train on the 
-full 100% of the training data to eke out the last bit of performance.
+Overall plan:
 
-First, let's do a batch processing of the images with the labeled ground truth bounding boxes 
-to make sure our coordinates and visual intuition is right.
+Make a Faster R-CNN implementation fine-tuned for this specific problem. There is some documentation
+for what that would look like in the following places:
 
-Second, as a warm up exercise lets pull out a set of set of sub-images with starfish and without 
-starfish. Let’s train a basic ResNet34 on this mini-dataset to do classification for starfish vs. 
-no starfish in the sub-images.
+R-CNN
 
-We can submit a basic grid search solution based on this algorithm just to test out the submission 
-API and get ourselves formally on the leaderboard.
+https://towardsdatascience.com/r-cnn-for-object-detection-a-technical-summary-9e7bfa8a557c
+https://arxiv.org/pdf/1311.2524.pdf
 
-Third, after this works lets move everything to a Google colab notebook and do training on their GPUs.
+Fast R-CNN
 
-Fourth, we want to move from processing subsections of the images to doing captioning of the full 
-image at once. This probably involves implementing a UNet with a ResNet backbone. There are 
-potentially a ton of hyperparameters to check. We will probably want to annotate individual pixels 
-or small sub-blocks as containing starfish or not, then manually merge these into overall bounding 
-blocks that we submit to the test API.
+https://towardsdatascience.com/fast-r-cnn-for-object-detection-a-technical-summary-a0ff94faa022
+https://arxiv.org/pdf/1504.08083.pdf
 
-Fifth, do we implement a transformer-based architecture to use information from previous images to 
-annotate the present image? I'm not actually sure what this would look like.
+Faster R-CNN
+
+https://towardsdatascience.com/faster-r-cnn-for-object-detection-a-technical-summary-474c5b857b46
+https://arxiv.org/pdf/1506.01497.pdf
+
+There are also some canned pre-trained models available from the TensorFlow developer hub, see
+
+https://www.tensorflow.org/hub/tutorials/tf2_object_detection
+https://tfhub.dev/tensorflow/collections/object_detection/1
 
 Other questions:
 
-1) Do we use data augmentation? If so, how? Random rotations are probably useful, random 
-deformations are probably useful, color augmentations may not be. We could try 
-"level of blue-ness" or "light / dark" as color augmentations.
+1) Do we use data augmentation? If so, how? Random rotations, random deformations, 
+and "level of blue-ness" or "light / dark" could be good things to try.
 
-2) Do we attempt to "improve" the localization of the bounding boxes so that it only contains the 
-starfish itself? This could yield a marginally better training set.
-
-3) There is almost certainly information to be gained by using the previous several video frames to reinforce 
+2) There is almost certainly information to be gained by using the previous several video frames to reinforce 
 or discourage the current image frame from claiming there is a starfish. I wonder if there is a way to 
 "register" the frames together so that an area in one frame can be unambiguously matched to the same 
 area in subsequent frames.
-
-Other notes:
-
-There are more prizes to be won for people using TensorFlow as opposed to PyTorch for this competition, 
-so I say we just do that. I'm happy to be convinced otherwise. We could always be ML hipsters and use PyTorch 
-in a TensorFlow competition.
