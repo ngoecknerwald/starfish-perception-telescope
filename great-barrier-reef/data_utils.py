@@ -1,19 +1,16 @@
-#
 # This is a class for interacting with the downloaded data
-#
-# For now it is a wrapper around the tf.keras utility, in the future it will be tweaked to return thumbnails.
-#
+# Two variants are provided, one returning thumbnails for
+# fine tuning the backbone and one returning full size images
 
 from tensorflow.keras.utils import image_dataset_from_directory
 import pandas as pd
 import os
 import glob
-import numpy as np
+import json
 
-# This class will be a wrapper for getting the full-sized images into the ML models
-# Intended to make things as atomic as possible for the high-level code
-#
-# data=data_utils.DataLoader(input_file='tensorflow-great-barrier-reef')
+
+# Classes in this file are called following
+# data=data_utils.DataLoader*(input_file='tensorflow-great-barrier-reef')
 # images = data.get_training(validation_split=0.2)
 
 
@@ -34,12 +31,34 @@ class DataLoader:
         self.input_file = input_file
         self.batch_size = None
         self.validation_split = None
-        self.ground_truth = None
         self.seed = 150601497
+        self.labels = pd.read_csv(os.path.join(self.input_file, 'train.csv'))
 
-    def _load_dataset(
-        self, batch_size=32, validation_split=0.2, shuffle=True, reseed=None
-    ):
+
+# This class will be a wrapper for getting the full-sized images into the ML models
+# Intended to make things as atomic as possible for the high-level code
+
+
+class DataLoaderFull(DataLoader):
+    def __init__(self, **kwargs):
+        '''
+        Construct a DataLoaderThumbnail class with the same properties as DataLoader
+
+        '''
+
+        super().__init__(**kwargs)
+
+        # TODO need to figure out how the files actually map to rows in the pandas database
+
+        self.ifile = list(
+            range(
+                len(
+                    glob.glob(os.path.join(self.input_file, 'train_images', '*/*.jpg'))
+                ),
+            )
+        )
+
+    def _load_dataset(self, batch_size=32, validation_split=0.2, shuffle=True):
         '''
         Internal method to load the dataset from the input files. Does nothing
         if the dataset has already been loaded with the same parameters.
@@ -55,27 +74,9 @@ class DataLoader:
 
         '''
 
-        # Make sure the params haven't changed.
-        if self.batch_size == batch_size and self.validation_split == validation_split:
-            return
-
-        # Reseed the data if requested
-        if reseed is not None:
-            self.seed = reseed
-
         # Record what was done for posterity
         self.batch_size = batch_size
         self.validation_split = validation_split
-
-        # Load the labels and count files
-        self.labels = pd.read_csv(os.path.join(self.input_file, 'train.csv'))
-        self.ifile = list(
-            range(
-                len(
-                    glob.glob(os.path.join(self.input_file, 'train_images', '*/*.jpg'))
-                ),
-            )
-        )
 
         # Load the dataset
         self.training = image_dataset_from_directory(
@@ -83,9 +84,10 @@ class DataLoader:
             labels=self.ifile,
             batch_size=batch_size,
             seed=self.seed,
-            validation_split=0.2,
+            validation_split=self.validation_split,
             shuffle=shuffle,
             subset='training',
+            image_size=(720, 1280),
         )
 
         self.validation = image_dataset_from_directory(
@@ -93,28 +95,11 @@ class DataLoader:
             labels=self.ifile,
             batch_size=batch_size,
             seed=self.seed,
-            validation_split=0.2,
+            validation_split=self.validation_split,
             shuffle=shuffle,
             subset='validation',
+            image_size=(720, 1280),
         )
-
-    def decode_label(label):
-        '''
-        Decode the label defined in the dataset creation into a list
-        of bounding boxes.
-
-        Assumes that the order of rows in the .npy file matches os.walk(),
-        which empirically seems to be the case.
-
-        Arguments:
-
-        label: int
-            Image number from the (sorted) dataset. This is decoded to a set of bounding boxes.
-
-        '''
-
-        st = self.labels['annotations'][label].replace('\'', '\"')
-        return json.loads(st)
 
     def get_training(self, **kwargs):
 
@@ -140,73 +125,108 @@ class DataLoader:
 
         return self.validation
 
+    def decode_label(self, label):
+        '''
+        Decode the label defined in the dataset creation into a list
+        of bounding boxes.
 
-# This class will return a set of thumbnails that either do or do not have starfish.
-# I haven't figured out if we actually need this to pre-train any part of the Faster R-CNN
-# so I haven't written it yet. It will have the same API is DataLoader.
+        Assumes that the order of rows in the .npy file matches os.walk(),
+        which empirically seems to be the case.
+
+        Arguments:
+
+        label: int
+            Image number from the (sorted) dataset. This is decoded to a set of bounding boxes.
+
+        '''
+
+        st = self.labels['annotations'][label].replace('\'', '\"')
+        return json.loads(st)
+
+
+# This class returns a set of thumbnails that either do or do not have starfish.
 
 
 class DataLoaderThumbnail(DataLoader):
     def __init__(self, **kwargs):
         '''
-        Construct a DataLoaderThumbnail class with the same properties as DataLoader
+        Construct a DataLoaderThumbnail class with the same properties as DataLoaderFull
 
         '''
 
         super().__init__(**kwargs)
 
-    def _create_thumbnails(self, **kwargs):
+    def _load_dataset(self, batch_size=32, validation_split=0.2, shuffle=True):
         '''
-        Applies the mapping in transform_full_to_thumbnail() to the elements
-        of the original dataset.
+        Internal method to create and load the thumbnail dataset from the input files.
+        Skips thumbnail creation if those already exist on disk.
 
-        Keyword arguments are passed down to that function.
+        Arguments:
+
+        batch_size : int
+            Minibatch size to be used in SGD
+        validation split : float
+            Fraction of the data to keep as cross validation data.
+        shuffle : bool
+            Shuffle the data into minibatches, True by default.
 
         '''
 
-        self.training_thumbs = self.training.map(transform_full_to_thumbnail)
+        if not os.path.exists(os.path.join(self.input_file, 'train_images_thumb')):
 
-        self.validation_thumbs = self.validation.map(transform_full_to_thumbnail)
+            # Now, work through the rows in the training labels and make cuts
+
+            # TODO write this
+
+            pass
+
+        # Then load the thumnails
+
+        # Load the dataset
+        self.training = image_dataset_from_directory(
+            os.path.join(self.input_file, 'train_images_thumb'),
+            labels='inferred',
+            label_mode='int',
+            batch_size=batch_size,
+            seed=self.seed,
+            validation_split=0.2,
+            shuffle=shuffle,
+            subset='training',
+        )
+
+        self.validation = image_dataset_from_directory(
+            os.path.join(self.input_file, 'train_images_thumb'),
+            labels='inferred',
+            label_mode='int',
+            batch_size=batch_size,
+            seed=self.seed,
+            validation_split=0.2,
+            shuffle=shuffle,
+            subset='validation',
+        )
 
     def get_training(self, **kwargs):
 
         '''
         Fetch the training set. Keyword arguments are passed down to _load_dataset.
 
-        Applies a map() operation on the existing dataset to turn it into thumbnails.
-
         '''
 
-        # Load the dataset in the same way as the DataLoader
-        if not hasattr(self, 'training'):
-            super()._load_dataset(**kwargs)
-
         # Cut down to thumbnails
-        if not hasattr(self, 'training_thumbs'):
-            self._create_thumbnails()
+        if not hasattr(self, 'training'):
+            self._load_dataset()
 
-        return self.training_thumbs
+        return self.training
 
     def get_validation(self, **kwargs):
 
         '''
         Fetch the validation set. Keyword arguments are passed down to _load_dataset.
 
-        Applies the map() operation on the existing dataset to turn it into thumbnails.
-
         '''
 
-        if not hasattr(self, 'validation'):
-            super()._load_dataset(**kwargs)
-
         # Cut down to thumbnails
-        if not hasattr(self, 'validation_thumbs'):
-            self._create_thumbnails()
+        if not hasattr(self, 'validation'):
+            self._load_dataset()
 
-        return self.validation_thumbs
-
-
-# Method for taking an image and label, and converting to a thumbnail
-def transform_full_to_thumbnail(image, label):
-
-    return image, label
+        return self.validation
