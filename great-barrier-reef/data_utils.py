@@ -7,7 +7,9 @@ import pandas as pd
 import os
 import glob
 import json
-
+import numpy as np
+from matplotlib import image
+from PIL import Image  # tooooo many things called "image"
 
 # Classes in this file are called following
 # data=data_utils.DataLoader*(input_file='tensorflow-great-barrier-reef')
@@ -42,21 +44,21 @@ class DataLoader:
 class DataLoaderFull(DataLoader):
     def __init__(self, **kwargs):
         '''
-        Construct a DataLoaderThumbnail class with the same properties as DataLoader
+        Construct a DataLoaderThumbnail class with the same properties as DataLoader.
+
+        Creates an index for matching elements in the dataset with rows in the label database.
 
         '''
 
         super().__init__(**kwargs)
 
-        # TODO need to figure out how the files actually map to rows in the pandas database
-
-        self.ifile = list(
-            range(
-                len(
-                    glob.glob(os.path.join(self.input_file, 'train_images', '*/*.jpg'))
-                ),
-            )
-        )
+        # Indices of filenames that then get handed into the dataset loader
+        filenames = [
+            'video_%d/%d.jpg'
+            % (self.labels['video_id'][index], self.labels['video_frame'][index])
+            for index in range(len(self.labels))
+        ]
+        self.ifile = list(np.argsort(filenames))
 
     def _load_dataset(self, batch_size=32, validation_split=0.2, shuffle=True):
         '''
@@ -140,7 +142,7 @@ class DataLoaderFull(DataLoader):
 
         '''
 
-        st = self.labels['annotations'][label].replace('\'', '\"')
+        st = self.labels['annotations'][label.numpy()].replace('\'', '\"')
         return json.loads(st)
 
 
@@ -156,7 +158,9 @@ class DataLoaderThumbnail(DataLoader):
 
         super().__init__(**kwargs)
 
-    def _load_dataset(self, batch_size=32, validation_split=0.2, shuffle=True):
+    def _load_dataset(
+        self, batch_size=32, validation_split=0.2, shuffle=True, image_size=(128, 128)
+    ):
         '''
         Internal method to create and load the thumbnail dataset from the input files.
         Skips thumbnail creation if those already exist on disk.
@@ -169,40 +173,96 @@ class DataLoaderThumbnail(DataLoader):
             Fraction of the data to keep as cross validation data.
         shuffle : bool
             Shuffle the data into minibatches, True by default.
+        image_size : tuple
+            Spatial size of the images to cut out. (128, 128) is a good default for this dataset.
 
         '''
 
         if not os.path.exists(os.path.join(self.input_file, 'train_images_thumb')):
 
+            os.makedirs(
+                os.path.join(self.input_file, 'train_images_thumb', 'background')
+            )
+            os.makedirs(os.path.join(self.input_file, 'train_images_thumb', 'starfish'))
+
             # Now, work through the rows in the training labels and make cuts
+            for index in range(len(self.labels)):
 
-            # TODO write this
+                # Monitor progress
+                if index % 1000 == 0:
+                    print(index)
 
-            pass
+                # Grab the annotations and the file name
+                annotation = json.loads(
+                    self.labels['annotations'][index].replace('\'', '\"')
+                )
+                filename = os.path.join(
+                    self.input_file,
+                    'train_images',
+                    'video_%d/%d.jpg'
+                    % (
+                        self.labels['video_id'][index],
+                        self.labels['video_frame'][index],
+                    ),
+                )
+
+                # Load the image
+                local_image = image.imread(filename)
+
+                # Approximately half of the training data contains starfish,
+                if (
+                    len(annotation) > 0
+                ):  # If there are starfish, then pick one at random
+                    choice = np.random.randint(len(annotation))
+                    xmin = np.maximum(
+                        0, int(annotation[choice]['x'] - image_size[1] / 2)
+                    )
+                    ymin = np.maximum(
+                        0, int(annotation[choice]['y'] - image_size[0] / 2)
+                    )
+                    outdir = os.path.join(
+                        self.input_file, 'train_images_thumb', 'starfish'
+                    )
+                else:  # Use this frame as a background sample and randomly crop
+                    xmin = np.random.randint(local_image.shape[1] - image_size[1])
+                    ymin = np.random.randint(local_image.shape[0] - image_size[0])
+                    outdir = os.path.join(
+                        self.input_file, 'train_images_thumb', 'background'
+                    )
+
+                # Crop and save the results
+                slice_image = Image.fromarray(
+                    local_image[
+                        ymin : ymin + image_size[0], xmin : xmin + image_size[1], :
+                    ]
+                )
+                slice_image.save(os.path.join(outdir, '%d.jpg' % index))
 
         # Then load the thumnails
-
-        # Load the dataset
         self.training = image_dataset_from_directory(
             os.path.join(self.input_file, 'train_images_thumb'),
             labels='inferred',
-            label_mode='int',
+            label_mode='binary',
+            class_names=('background', 'starfish'),
             batch_size=batch_size,
             seed=self.seed,
             validation_split=0.2,
             shuffle=shuffle,
             subset='training',
+            image_size=image_size,
         )
 
         self.validation = image_dataset_from_directory(
             os.path.join(self.input_file, 'train_images_thumb'),
             labels='inferred',
-            label_mode='int',
+            label_mode='binary',
+            class_names=('background', 'starfish'),
             batch_size=batch_size,
             seed=self.seed,
             validation_split=0.2,
             shuffle=shuffle,
             subset='validation',
+            image_size=image_size,
         )
 
     def get_training(self, **kwargs):
