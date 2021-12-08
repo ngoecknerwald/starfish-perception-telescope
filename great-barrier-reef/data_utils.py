@@ -215,10 +215,20 @@ class DataLoaderThumbnail(DataLoader):
                 ):  # If there are starfish, then pick one at random
                     choice = np.random.randint(len(annotation))
                     xmin = np.maximum(
-                        0, int(annotation[choice]['x'] - image_size[1] / 2)
+                        0,
+                        int(
+                            annotation[choice]['x']
+                            + annotation[choice]['width'] / 2
+                            - image_size[1] / 2
+                        ),
                     )
                     ymin = np.maximum(
-                        0, int(annotation[choice]['y'] - image_size[0] / 2)
+                        0,
+                        int(
+                            annotation[choice]['y']
+                            + annotation[choice]['height'] / 2
+                            - image_size[0] / 2
+                        ),
                     )
                     outdir = os.path.join(
                         self.input_file, 'train_images_thumb', 'starfish'
