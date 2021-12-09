@@ -34,3 +34,7 @@ and "level of blue-ness" or "light / dark" could be good things to try.
 or discourage the current image frame from claiming there is a starfish. I wonder if there is a way to 
 "register" the frames together so that an area in one frame can be unambiguously matched to the same 
 area in subsequent frames.
+
+For the backbone weights, Neil is going to argue that we should use
+
+https://tfhub.dev/google/imagenet/inception_resnet_v2/feature_vector/5
