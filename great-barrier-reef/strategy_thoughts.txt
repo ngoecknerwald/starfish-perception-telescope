@@ -38,3 +38,25 @@ area in subsequent frames.
 For the backbone weights, Neil is going to argue that we should use
 
 https://tfhub.dev/google/imagenet/inception_resnet_v2/feature_vector/5
+
+Notes from Sam on running in colab:
+
+* All the online guides tell you to use bang (like !pip install ) for shell commands inside a notebook but you can 
+    also just open a terminal (bottom left corner). I ran all the kaggle commands this way after mounting my drive (see below).
+
+* Somehow you can't roam around your drive until you run
+    from google.colab import drive
+    drive.mount('/content/drive')
+inside a notebook and reauthorize drive access. Still trying to find a way around this.
+
+* After mounting, your main drive will sit in /content/drive/MyDrive
+* Even though you use bang (!) to run shell commands, you have to use %cd to change directories inside the notebook 
+    (! calls a separate shell, % accesses the shell your notebook is running in through ipython magic)
+* I couldn't download the data til I ran
+    !pip uninstall -y kaggle
+    !pip install --upgrade pip
+    !pip install kaggle==1.5.6
+* Easiest way I found to clone the repo was to generate an access token on github.com -> user icon -> settings 
+    -> developer settings -> personal access tokens, and then use the Colab terminal to git clone https://token@github....
+* You can edit .py files in Colab by clicking on the "Files" menu in the left hand pane 
+    (different from "File" in top menu bar) and double clicking a py file. This will open a text editor tab in the same subwindow as the terminal.
