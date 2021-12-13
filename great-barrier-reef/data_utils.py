@@ -15,6 +15,26 @@ from PIL import Image  # tooooo many things called "image"
 # data=data_utils.DataLoader*(input_file='tensorflow-great-barrier-reef')
 # images = data.get_training(validation_split=0.2)
 
+# TODO the following lines should get chucked into this class
+
+normalization_layer = tf.keras.layers.Rescaling(1. / 255)
+preprocessing_model = tf.keras.Sequential([normalization_layer])
+
+#do_data_augmentation = False #let's not do any for now
+#if do_data_augmentation:
+#  preprocessing_model.add(
+#      tf.keras.layers.RandomRotation(40))
+#  preprocessing_model.add(
+#      tf.keras.layers.RandomTranslation(0, 0.2))
+#  preprocessing_model.add(
+#      tf.keras.layers.RandomTranslation(0.2, 0))
+#  preprocessing_model.add(
+#      tf.keras.layers.RandomFlip(mode="horizontal"))  
+#inputs_aug = inputs.map(lambda images, labels:
+#                        (preprocessing_model(images), labels))
+#valid_aug = valid.map(lambda images, labels:
+#                        (preprocessing_model(images), labels))
+
 
 class DataLoader:
     def __init__(self, input_file='tensorflow-great-barrier-reef'):
