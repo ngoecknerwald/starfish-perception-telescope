@@ -4,30 +4,49 @@
 # and all variables denoted x, y, h, w denote *image space*
 
 import tensorflow as tf
+import numpy as np
 
 
 class RPN(tf.keras.Model):
-    def __init__(self, k, kernel_size=3):
-        super(MyModel, self).__init__()
-        self.conv1 = (
-            tf.keras.layers.Conv2D(
-                filters=256, kernel_size=kernel_size, strides=(1, 1), activation='relu'
-            ),
+    def __init__(self, k, kernel_size, anchor_stride, filters):
+        '''
+        Class for the RPN consisting of a convolutional layer and two fully connected layers
+        for "objectness" and bounding box regression.
+
+        k : int
+            Number of bounding box sizes, usually 9.
+        kernel_size : int
+            Kernel size for the first convolutional layer.
+        anchor_stride : int
+            Stride of the anchor in image space.
+        filters: int
+            Number of filters between the convolutional layer
+            and the fully connected layers.
+
+        '''
+
+        super().__init__()
+        self.k = k
+        self.kernel_size = kernel_size
+        self.anchor_stride = anchor_stride
+        self.filters = filters
+        self.conv1 = tf.keras.layers.Conv2D(
+            filters=256,
+            kernel_size=kernel_size,
+            strides=(anchor_stride, anchor_stride),
+            activation='relu',
         )
-        self.cls = (
-            tf.keras.layers.Conv2D(
-                filters=2 * self.k, kernel_size=1, strides=(1, 1), activation='softmax'
-            ),
-        )
-        self.bbox = (
-            tf.keras.layers.Conv2D(
-                filters=4 * self.k,
-                kernel_size=1,
-                strides=(1, 1),
-            ),
+        self.cls = tf.keras.layers.Conv2D(
+            filters=2 * self.k, kernel_size=1, strides=(1, 1), activation='softmax'
         )
 
-    def call(self, x, training=None, **kwargs):
+        self.bbox = tf.keras.layers.Conv2D(
+            filters=4 * self.k,
+            kernel_size=1,
+            strides=(1, 1),
+        )
+
+    def call(self, x):
         x = self.conv1(x)
         cls = self.cls(x)
         bbox = self.bbox(x)
@@ -35,21 +54,48 @@ class RPN(tf.keras.Model):
 
 
 class RPNWrapper:
-    def __init__(self, backbone, **kwargs):
+    def __init__(
+        self,
+        backbone,
+        kernel_size=3,
+        learning_rate=1e-4,
+        anchor_stride=1,
+        window_sizes=[2, 4, 8],
+        aspect_ratios=[0.5, 1, 2.0],
+        filters=256,
+    ):
         '''
         Initialize the RPN model for pretraining.
+
+        backbone : Backbone
+            Knows input image and feature map sizes but is not directly trained here.
+        kernel_size : int
+            Kernel size for the first convolutional layer in the RPN.
+        learning_rate : float
+            Learning rate for the ADAM optimizer.
+        anchor_stride : int
+            Stride of the anchor in image space in the RPN.
+        window_sizes : list of ints
+            Width of the proposals to select, *in extracted feature space*.
+        aspect_ratios : list of floats
+            Set of aspect ratios (height / width) to select.
+        filters: int
+            Number of filters between the convolutional layer
+            and the fully connected layers in the RPN.
 
         '''
 
         # Store the image size
         self.backbone = backbone
 
-        # Now initialize networks
-        self.build_anchor_boxes(**kwargs)
-        self.build_anchor_points(**kwargs)
+        # Anchor box sizes
+        self.build_anchor_boxes(window_sizes, aspect_ratios)
 
         # Build the model
-        self.rpn = RPN(self.k)
+        self.rpn = RPN(self.k, kernel_size, anchor_stride, filters)
+
+        # Optimizer
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate)
 
     def feature_coords_to_image_coords(self, xx, yy):
         '''
@@ -102,11 +148,11 @@ class RPNWrapper:
 
     def build_anchor_boxes(
         self,
-        window_sizes=[2, 4, 8],
-        aspect_ratios=[0.5, 1, 2.0],
+        window_sizes,
+        aspect_ratios,
     ):
         '''
-        Build the anchor box sizes in the image space.
+        Build the anchor box sizes in the feature space.
 
         window_sizes : list of ints
             Width of the proposals to select, *in extracted feature space*.
@@ -117,34 +163,12 @@ class RPNWrapper:
 
         # Make the list of window sizes
         hh, ww = np.meshgrid(window_sizes, window_sizes)
-        hh *= aspect_ratios[:, np.newaxis]
+        hh = np.array(hh * np.array(aspect_ratios)[:, np.newaxis]).astype(int)
 
         # Flatten for simplicity later
-        self.hh = hh.reshape[-1]
-        self.ww = ww.reshape[-1]
+        self.hh = hh.reshape(-1)
+        self.ww = ww.reshape(-1)
         self.k = len(window_sizes) * len(aspect_ratios)
-
-    def build_anchor_points(
-        self,
-        stride=1,
-        boundary='clip',
-    ):
-
-        '''
-        Build the anchor points.
-
-        Arguments:
-
-        stride : int
-            Place an anchor every <stride> pixels in the *extracted feature space*.
-        '''
-        # For each point, define an anchor box
-        xx, yy = np.meshgrid(
-            range(0, self.backbone.output_shape[1], stride),
-            range(0, self.backbone.output_shape[0], stride),
-        )
-        self.xx = xx.reshape(-1)
-        self.yy = yy.reshape(-1)
 
     def validate_anchor_box(xx, yy, ww, hh):
         '''

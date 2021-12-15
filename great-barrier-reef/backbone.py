@@ -8,7 +8,9 @@ class Backbone:
         '''
         Superclass for different backbone models.
         '''
-        pass
+        self.extractor = None
+        self.input_shape = None
+        self.output_shape = None
 
     def save_backbone(self, path):
         '''
@@ -38,15 +40,12 @@ class Backbone_InceptionResNetV2(Backbone):
     # Start by downloading pretrained weights from the Tensorflow hub
     def __init__(self, input_shape=(720, 1280, 3), **kwargs):
         '''
-        Initialize the network backbone. By default downloads the Inception Resnet V2 pretrained on ImageNet.
-        Provides methods to fine tune the training on thumbnail images and convert the full image into feature maps.
+        Initialize the network backbone. Downloads the Inception Resnet V2 pretrained on ImageNet.
 
         Arguments:
 
-        model : str, 'https://tfhub.dev/google/imagenet/inception_resnet_v2/feature_vector/5' default
-            Pretrained convolutional weights to download from the TF hub.
-        **kwargs : {}
-            Arguments passed to hub.KerasLayer() when downloading the model
+        input_shape: tuple
+            Shape of the input images.
         '''
 
         super().__init__()
