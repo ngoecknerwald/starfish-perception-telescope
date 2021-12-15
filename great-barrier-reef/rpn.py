@@ -35,11 +35,11 @@ class RPN(tf.keras.Model):
             kernel_size=kernel_size,
             strides=(anchor_stride, anchor_stride),
             activation='relu',
+            padding='same',
         )
         self.cls = tf.keras.layers.Conv2D(
             filters=2 * self.k, kernel_size=1, strides=(1, 1), activation='softmax'
         )
-
         self.bbox = tf.keras.layers.Conv2D(
             filters=4 * self.k,
             kernel_size=1,
@@ -60,7 +60,7 @@ class RPNWrapper:
         kernel_size=3,
         learning_rate=1e-4,
         anchor_stride=1,
-        window_sizes=[2, 4, 8],
+        window_sizes=[4, 6, 8],
         aspect_ratios=[0.5, 1, 2.0],
         filters=256,
     ):
@@ -90,6 +90,9 @@ class RPNWrapper:
 
         # Anchor box sizes
         self.build_anchor_boxes(window_sizes, aspect_ratios)
+
+        # Build the valid mask
+        self.build_valid_mask(anchor_stride)
 
         # Build the model
         self.rpn = RPN(self.k, kernel_size, anchor_stride, filters)
@@ -170,7 +173,7 @@ class RPNWrapper:
         self.ww = ww.reshape(-1)
         self.k = len(window_sizes) * len(aspect_ratios)
 
-    def validate_anchor_box(xx, yy, ww, hh):
+    def validate_anchor_box(self, xx, yy, ww, hh):
         '''
         Validate whether or not an anchor box in the extracted feature space
         defined by xx, yy, ww, hh is valid.
@@ -197,9 +200,44 @@ class RPNWrapper:
         yymin = int(yy - hh / 2)
         yymax = int(yy + hh / 2)
 
-        return (lxmin > 0 and lymin > 0) and (
-            lxmax < self.image_shape[1] and lymax < self.image_shape[0]
+        return (xxmin >= 0 and yymin >= 0) and (
+            xxmax < self.backbone.output_shape[1]
+            and yymax < self.backbone.output_shape[0]
         )
+
+    def build_valid_mask(self, anchor_stride):
+        '''
+        Build a mask the same shape as the output of the RPN
+        indicating whether or not a proposal box crosses the image
+        boundary.
+
+        Arguments:
+
+        anchor_stride : int
+            Total stride of the RPN class, usually 1. Controls
+            the density of anchors in feature space.
+
+        '''
+
+        self.valid_mask = np.zeros(
+            (
+                int(self.backbone.output_shape[0] / anchor_stride),
+                int(self.backbone.output_shape[1] / anchor_stride),
+                self.k,
+            ),
+            dtype=bool,
+        )
+
+        for ixx, xx in enumerate(
+            range(0, self.backbone.output_shape[1], anchor_stride)
+        ):
+            for iyy, yy in enumerate(
+                range(0, self.backbone.output_shape[0], anchor_stride)
+            ):
+                for ik, (hh, ww) in enumerate(zip(self.hh, self.ww)):
+                    self.valid_mask[iyy, ixx, ik] = self.validate_anchor_box(
+                        xx, yy, ww, hh
+                    )
 
     def train_step(self):
 
