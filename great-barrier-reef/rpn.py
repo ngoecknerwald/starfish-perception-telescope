@@ -103,47 +103,6 @@ class RPNWrapper:
         # Optimizer
         self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
 
-    def feature_coords_to_image_coords(self, xx, yy):
-        '''
-        Naively maps coordinates x,y in extracted feature space to
-        coordinates in map space.
-
-        Arguments:
-
-        xx : int or numpy array
-            Pixel coordinate in the feature map.
-        yy : int or numpy array
-            Pixel corrdinate in the feature map.
-
-        TODO this probably isn't actually right, because of edge effect.
-        Come back to this if the boxes are all systematically offset.
-        '''
-
-        return (
-            xx * float(self.backbone.input_shape[1] / self.backbone.output_shape[1]),
-            yy * float(self.backbone.input_shape[0] / self.backbone.output_shape[0]),
-        )
-
-    def image_coords_to_feature_coords(self, x, y):
-        '''
-        Naively map coordinates in image space to feature space.
-
-        Arguments:
-
-        x : int or numpy array
-            Pixel coordinate in the image map.
-        y : int or numpy array
-            Pixel corrdinate in the image map.
-
-        TODO this probably isn't actually right, because of edge effect.
-        Come back to this if the boxes are all systematically offset.
-        '''
-
-        return (
-            x * float(self.backbone.output_shape[1] / self.backbone.input_shape[1]),
-            y * float(self.backbone.output_shape[0] / self.backbone.input_shape[0]),
-        )
-
     def build_anchor_boxes(self):
         '''
         Build the anchor box sizes in the feature space.
@@ -248,8 +207,12 @@ class RPNWrapper:
         '''
 
         # Coordinates and area of the proposed region
-        xmin, ymin = self.feature_coords_to_image_coords(xx - ww / 2, yy - hh / 2)
-        xmax, ymax = self.feature_coords_to_image_coords(xx + ww / 2, yy + hh / 2)
+        xmin, ymin = self.backbone.feature_coords_to_image_coords(
+            xx - ww / 2, yy - hh / 2
+        )
+        xmax, ymax = self.backbone.feature_coords_to_image_coords(
+            xx + ww / 2, yy + hh / 2
+        )
 
         # Cast to numpy array to vectorize IoU over many proposal regions
         xmin = xmin * np.ones_like(xx)

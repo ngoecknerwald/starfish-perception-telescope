@@ -2,6 +2,9 @@
 import tensorflow as tf
 import tensorflow_hub as hub
 
+# NOTE, from here on all variables denoted xx, yy, hh, ww refer to *feature space*
+# and all variables denoted x, y, h, w denote *image space*
+
 
 class Backbone:
     def __init__(self):
@@ -33,6 +36,47 @@ class Backbone:
         '''
 
         self.extractor = tf.saved_model.load(path)
+
+    def feature_coords_to_image_coords(self, xx, yy):
+        '''
+        Naively maps coordinates x,y in extracted feature space to
+        coordinates in map space.
+
+        Arguments:
+
+        xx : int or numpy array
+            Pixel coordinate in the feature map.
+        yy : int or numpy array
+            Pixel corrdinate in the feature map.
+
+        TODO this probably isn't actually right, because of edge effect.
+        Come back to this if the boxes are all systematically offset.
+        '''
+
+        return (
+            xx * float(self.input_shape[1] / self.output_shape[1]),
+            yy * float(self.input_shape[0] / self.output_shape[0]),
+        )
+
+    def image_coords_to_feature_coords(self, x, y):
+        '''
+        Naively map coordinates in image space to feature space.
+
+        Arguments:
+
+        x : int or numpy array
+            Pixel coordinate in the image map.
+        y : int or numpy array
+            Pixel corrdinate in the image map.
+
+        TODO this probably isn't actually right, because of edge effect.
+        Come back to this if the boxes are all systematically offset.
+        '''
+
+        return (
+            x * float(self.output_shape[1] / self.input_shape[1]),
+            y * float(self.output_shape[0] / self.input_shape[0]),
+        )
 
 
 class Backbone_InceptionResNetV2(Backbone):
