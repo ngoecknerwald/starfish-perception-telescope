@@ -31,7 +31,7 @@ class RPN(tf.keras.Model):
         self.anchor_stride = anchor_stride
         self.filters = filters
         self.conv1 = tf.keras.layers.Conv2D(
-            filters=256,
+            filters=self.filters,
             kernel_size=kernel_size,
             strides=(anchor_stride, anchor_stride),
             activation='relu',
@@ -60,8 +60,7 @@ class RPNWrapper:
         kernel_size=3,
         learning_rate=1e-4,
         anchor_stride=1,
-        window_sizes=[4, 6, 8],
-        aspect_ratios=[0.5, 1, 2.0],
+        window_sizes=[2, 4, 6],  # TODO these must be divisible by 2
         filters=256,
     ):
         '''
@@ -76,9 +75,8 @@ class RPNWrapper:
         anchor_stride : int
             Stride of the anchor in image space in the RPN.
         window_sizes : list of ints
-            Width of the proposals to select, *in extracted feature space*.
-        aspect_ratios : list of floats
-            Set of aspect ratios (height / width) to select.
+            Width of the proposals to select, *in extracted feature space*. Bypasses
+            aspect ratios with np.meshgrid().
         filters: int
             Number of filters between the convolutional layer
             and the fully connected layers in the RPN.
@@ -87,18 +85,23 @@ class RPNWrapper:
 
         # Store the image size
         self.backbone = backbone
+        self.kernel_size = kernel_size
+        self.learning_rate = learning_rate
+        self.anchor_stride = anchor_stride
+        self.window_sizes = window_sizes
+        self.filters = filters
 
         # Anchor box sizes
-        self.build_anchor_boxes(window_sizes, aspect_ratios)
+        self.build_anchor_boxes()
 
         # Build the valid mask
-        self.build_valid_mask(anchor_stride)
+        self.build_valid_mask()
 
         # Build the model
-        self.rpn = RPN(self.k, kernel_size, anchor_stride, filters)
+        self.rpn = RPN(self.k, self.kernel_size, self.anchor_stride, self.filters)
 
         # Optimizer
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate)
+        self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
 
     def feature_coords_to_image_coords(self, xx, yy):
         '''
@@ -107,9 +110,9 @@ class RPNWrapper:
 
         Arguments:
 
-        xx : int
+        xx : int or numpy array
             Pixel coordinate in the feature map.
-        yy : int
+        yy : int or numpy array
             Pixel corrdinate in the feature map.
 
         TODO this probably isn't actually right, because of edge effect.
@@ -117,12 +120,8 @@ class RPNWrapper:
         '''
 
         return (
-            int(
-                xx * float(self.backbone.input_shape[1] / self.backbone.output_shape[1])
-            ),
-            int(
-                yy * float(self.backbone.input_shape[0] / self.backbone.output_shape[0])
-            ),
+            xx * float(self.backbone.input_shape[1] / self.backbone.output_shape[1]),
+            yy * float(self.backbone.input_shape[0] / self.backbone.output_shape[0]),
         )
 
     def image_coords_to_feature_coords(self, x, y):
@@ -131,9 +130,9 @@ class RPNWrapper:
 
         Arguments:
 
-        x : int
+        x : int or numpy array
             Pixel coordinate in the image map.
-        y : int
+        y : int or numpy array
             Pixel corrdinate in the image map.
 
         TODO this probably isn't actually right, because of edge effect.
@@ -141,37 +140,27 @@ class RPNWrapper:
         '''
 
         return (
-            int(
-                x * float(self.backbone.output_shape[1] / self.backbone.input_shape[1])
-            ),
-            int(
-                y * float(self.backbone.output_shape[0] / self.backbone.input_shape[0])
-            ),
+            x * float(self.backbone.output_shape[1] / self.backbone.input_shape[1]),
+            y * float(self.backbone.output_shape[0] / self.backbone.input_shape[0]),
         )
 
-    def build_anchor_boxes(
-        self,
-        window_sizes,
-        aspect_ratios,
-    ):
+    def build_anchor_boxes(self):
         '''
         Build the anchor box sizes in the feature space.
-
-        window_sizes : list of ints
-            Width of the proposals to select, *in extracted feature space*.
-        aspect_ratios : list of floats
-            Set of aspect ratios (height / width) to select.
 
         '''
 
         # Make the list of window sizes
-        hh, ww = np.meshgrid(window_sizes, window_sizes)
-        hh = np.array(hh * np.array(aspect_ratios)[:, np.newaxis]).astype(int)
-
-        # Flatten for simplicity later
+        hh, ww = np.meshgrid(self.window_sizes, self.window_sizes)
         self.hh = hh.reshape(-1)
         self.ww = ww.reshape(-1)
-        self.k = len(window_sizes) * len(aspect_ratios)
+        self.k = len(self.window_sizes) ** 2
+
+        # Need to refer the anchor points back to the feature space
+        self.anchor_xx, self.anchor_yy = np.meshgrid(
+            range(0, self.backbone.output_shape[1], self.anchor_stride),
+            range(0, self.backbone.output_shape[0], self.anchor_stride),
+        )
 
     def validate_anchor_box(self, xx, yy, ww, hh):
         '''
@@ -205,39 +194,100 @@ class RPNWrapper:
             and yymax < self.backbone.output_shape[0]
         )
 
-    def build_valid_mask(self, anchor_stride):
+    def build_valid_mask(self):
         '''
         Build a mask the same shape as the output of the RPN
         indicating whether or not a proposal box crosses the image
         boundary.
 
-        Arguments:
-
-        anchor_stride : int
-            Total stride of the RPN class, usually 1. Controls
-            the density of anchors in feature space.
-
         '''
 
         self.valid_mask = np.zeros(
             (
-                int(self.backbone.output_shape[0] / anchor_stride),
-                int(self.backbone.output_shape[1] / anchor_stride),
+                len(range(0, self.backbone.output_shape[0], self.anchor_stride)),
+                len(range(0, self.backbone.output_shape[1], self.anchor_stride)),
                 self.k,
             ),
             dtype=bool,
         )
 
         for ixx, xx in enumerate(
-            range(0, self.backbone.output_shape[1], anchor_stride)
+            range(0, self.backbone.output_shape[1], self.anchor_stride)
         ):
             for iyy, yy in enumerate(
-                range(0, self.backbone.output_shape[0], anchor_stride)
+                range(0, self.backbone.output_shape[0], self.anchor_stride)
             ):
                 for ik, (hh, ww) in enumerate(zip(self.hh, self.ww)):
                     self.valid_mask[iyy, ixx, ik] = self.validate_anchor_box(
                         xx, yy, ww, hh
                     )
+
+    def ground_truth_IoU(self, annotations, xx, yy, hh, ww):
+        '''
+        Compute the ground truth IoU for a set of boxes defined in feature space.
+
+        Arguments:
+
+        annotations : list
+            List of annotations in the input format, i.e.
+            {'x': 406, 'y': 591, 'width': 57, 'height': 58}.
+        xx : numpy array
+            Pixel coordinate in the feature map.
+        yy : numpy array
+            Pixel corrdinate in the feature map.
+        ww : numpy array
+            Pixel corrdinate in the feature map.
+        hh : numpy array
+            Pixel coordinate in the feature map.
+
+        Returns:
+
+        IoU: list of numpy array
+            Ground truth IoU for each annotation.
+
+        '''
+
+        # Coordinates and area of the proposed region
+        xmin, ymin = self.feature_coords_to_image_coords(xx - ww / 2, yy - hh / 2)
+        xmax, ymax = self.feature_coords_to_image_coords(xx + ww / 2, yy + hh / 2)
+
+        # Cast to numpy array to vectorize IoU over many proposal regions
+        xmin = xmin * np.ones_like(xx)
+        ymin = ymin * np.ones_like(yy)
+        xmax = xmax * np.ones_like(xx)
+        xmax = xmax * np.ones_like(yy)
+
+        # Final output
+        IoU = []
+
+        # Cycle through the annotations and compute IoU
+        for annotation in annotations:
+
+            intersect = np.maximum(
+                0,
+                1
+                + (
+                    np.minimum(xmax, annotation['x'] + annotation['width'] / 2)
+                    - np.maximum(xmin, annotation['x'] - annotation['width'] / 2)
+                ),
+            ) * np.maximum(
+                0,
+                1
+                + (
+                    np.minimum(ymax, annotation['y'] + annotation['height'] / 2)
+                    - np.maximum(ymin, annotation['y'] - annotation['height'] / 2)
+                ),
+            )
+            IoU.append(
+                (intersect)
+                / (
+                    (xmax - xmin) * (ymax - ymin)
+                    + annotation['width'] * annotation['height']
+                    - intersect
+                )
+            )
+
+        return IoU
 
     def train_step(self):
 
