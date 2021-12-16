@@ -8,37 +8,37 @@ import tensorflow_hub as hub
 
 class Backbone:
     def __init__(self):
-        '''
+        """
         Superclass for different backbone models.
-        '''
+        """
         self.extractor = None
         self.input_shape = None
         self.output_shape = None
 
     def save_backbone(self, path):
-        '''
+        """
         Save the trained convolutional layers of the backbone to a file path.
 
         Arguments:
 
         path: str
             Save path for the (tuned) backbone model.
-        '''
+        """
 
         tf.saved_model.save(self.extractor, path)
 
     def load_backbone(self, path):
-        '''
+        """
         Load the tuned backbone from a path.
 
         path: str
             Load path for the (tuned) backbone model.
-        '''
+        """
 
         self.extractor = tf.saved_model.load(path)
 
     def feature_coords_to_image_coords(self, xx, yy):
-        '''
+        """
         Naively maps coordinates x,y in extracted feature space to
         coordinates in map space.
 
@@ -51,7 +51,7 @@ class Backbone:
 
         TODO this probably isn't actually right, because of edge effect.
         Come back to this if the boxes are all systematically offset.
-        '''
+        """
 
         return (
             xx * float(self.input_shape[1] / self.output_shape[1]),
@@ -59,7 +59,7 @@ class Backbone:
         )
 
     def image_coords_to_feature_coords(self, x, y):
-        '''
+        """
         Naively map coordinates in image space to feature space.
 
         Arguments:
@@ -71,7 +71,7 @@ class Backbone:
 
         TODO this probably isn't actually right, because of edge effect.
         Come back to this if the boxes are all systematically offset.
-        '''
+        """
 
         return (
             x * float(self.output_shape[1] / self.input_shape[1]),
@@ -83,14 +83,14 @@ class Backbone_InceptionResNetV2(Backbone):
 
     # Start by downloading pretrained weights from the Tensorflow hub
     def __init__(self, input_shape=(720, 1280, 3), **kwargs):
-        '''
+        """
         Initialize the network backbone. Downloads the Inception Resnet V2 pretrained on ImageNet.
 
         Arguments:
 
         input_shape: tuple
             Shape of the input images.
-        '''
+        """
 
         super().__init__()
 

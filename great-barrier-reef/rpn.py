@@ -5,11 +5,16 @@
 
 import tensorflow as tf
 import numpy as np
+import warnings
+
+# Number of tries to find a four valid RoIs. Note that if this fails it is still
+# possible to successfully build a minibatch
+CUTOFF = 100
 
 
 class RPN(tf.keras.Model):
     def __init__(self, k, kernel_size, anchor_stride, filters):
-        '''
+        """
         Class for the RPN consisting of a convolutional layer and two fully connected layers
         for "objectness" and bounding box regression.
 
@@ -23,7 +28,7 @@ class RPN(tf.keras.Model):
             Number of filters between the convolutional layer
             and the fully connected layers.
 
-        '''
+        """
 
         super().__init__()
         self.k = k
@@ -34,11 +39,11 @@ class RPN(tf.keras.Model):
             filters=self.filters,
             kernel_size=kernel_size,
             strides=(anchor_stride, anchor_stride),
-            activation='relu',
-            padding='same',
+            activation="relu",
+            padding="same",
         )
         self.cls = tf.keras.layers.Conv2D(
-            filters=2 * self.k, kernel_size=1, strides=(1, 1), activation='softmax'
+            filters=2 * self.k, kernel_size=1, strides=(1, 1), activation="softmax"
         )
         self.bbox = tf.keras.layers.Conv2D(
             filters=4 * self.k,
@@ -62,8 +67,11 @@ class RPNWrapper:
         anchor_stride=1,
         window_sizes=[2, 4, 6],  # TODO these must be divisible by 2
         filters=256,
+        rpn_minibatch=256,
+        IoU_neg_threshold=0.1,
+        IoU_pos_threshold=0.7,
     ):
-        '''
+        """
         Initialize the RPN model for pretraining.
 
         backbone : Backbone
@@ -80,8 +88,13 @@ class RPNWrapper:
         filters: int
             Number of filters between the convolutional layer
             and the fully connected layers in the RPN.
-
-        '''
+        rpn_minibatch : int
+            Number of RoIs to use ( = positive + negative) per gradient step in the RPN.
+        IoU_neg_threshold : float
+            IoU to declare that a region proposal is a negative example.
+        IoU_pos_threshold : float
+            IoU to declare that a region proposal is a positive example.
+        """
 
         # Store the image size
         self.backbone = backbone
@@ -90,6 +103,9 @@ class RPNWrapper:
         self.anchor_stride = anchor_stride
         self.window_sizes = window_sizes
         self.filters = filters
+        self.rpn_minibatch = rpn_minibatch
+        self.IoU_neg_threshold = IoU_neg_threshold
+        self.IoU_pos_threshold = IoU_pos_threshold
 
         # Anchor box sizes
         self.build_anchor_boxes()
@@ -104,10 +120,10 @@ class RPNWrapper:
         self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
 
     def build_anchor_boxes(self):
-        '''
+        """
         Build the anchor box sizes in the feature space.
 
-        '''
+        """
 
         # Make the list of window sizes
         hh, ww = np.meshgrid(self.window_sizes, self.window_sizes)
@@ -122,7 +138,7 @@ class RPNWrapper:
         )
 
     def validate_anchor_box(self, xx, yy, ww, hh):
-        '''
+        """
         Validate whether or not an anchor box in the extracted feature space
         defined by xx, yy, ww, hh is valid.
 
@@ -141,7 +157,7 @@ class RPNWrapper:
 
         bool, whether or not this box is valid
 
-        '''
+        """
 
         xxmin = int(xx - ww / 2)
         xxmax = int(xx + ww / 2)
@@ -154,12 +170,12 @@ class RPNWrapper:
         )
 
     def build_valid_mask(self):
-        '''
+        """
         Build a mask the same shape as the output of the RPN
         indicating whether or not a proposal box crosses the image
         boundary.
 
-        '''
+        """
 
         self.valid_mask = np.zeros(
             (
@@ -182,7 +198,7 @@ class RPNWrapper:
                     )
 
     def ground_truth_IoU(self, annotations, xx, yy, hh, ww):
-        '''
+        """
         Compute the ground truth IoU for a set of boxes defined in feature space.
 
         Arguments:
@@ -204,7 +220,7 @@ class RPNWrapper:
         IoU: list of numpy array
             Ground truth IoU for each annotation.
 
-        '''
+        """
 
         # Coordinates and area of the proposed region
         xmin, ymin = self.backbone.feature_coords_to_image_coords(
@@ -230,27 +246,157 @@ class RPNWrapper:
                 0,
                 1
                 + (
-                    np.minimum(xmax, annotation['x'] + annotation['width'] / 2)
-                    - np.maximum(xmin, annotation['x'] - annotation['width'] / 2)
+                    np.minimum(xmax, annotation["x"] + annotation["width"] / 2)
+                    - np.maximum(xmin, annotation["x"] - annotation["width"] / 2)
                 ),
             ) * np.maximum(
                 0,
                 1
                 + (
-                    np.minimum(ymax, annotation['y'] + annotation['height'] / 2)
-                    - np.maximum(ymin, annotation['y'] - annotation['height'] / 2)
+                    np.minimum(ymax, annotation["y"] + annotation["height"] / 2)
+                    - np.maximum(ymin, annotation["y"] - annotation["height"] / 2)
                 ),
             )
             IoU.append(
                 (intersect)
                 / (
                     (xmax - xmin) * (ymax - ymin)
-                    + annotation['width'] * annotation['height']
+                    + annotation["width"] * annotation["height"]
                     - intersect
                 )
             )
 
         return IoU
+
+    # Method that will eventually belong to the RPNWrapper class
+    def accumulate_roi(self, features, label_decode):
+        """
+        Make a list of RoIs of positive and negative examples
+        and their corresponding ground truth annotations.
+
+        Arguments:
+
+        features : tensor
+            Minibatch of input images after running through the backbone.
+        label_decode : list of dicts
+            Decoded labels for this minibatch
+
+        Returns:
+
+        list of [xx, yy, hh, ww, {<label or empty>}]
+
+        """
+
+        # Sanity checking
+        assert features.shape[0] == len(label_decode)
+        rois = []
+
+        # Now iterate over images in the minibatch
+        for i, this_label in enumerate(label_decode):
+            """
+            Fill the list of ROIs with both positive and negative examples
+
+            Return (rpn_minibatch/images) samples (image number, xx, yy, hh, ww, {})
+            corresponding to negative examples no matter what. This ensures that we
+            have enough examples to fill out the RPN minibatch
+
+            For each ground truth positive in label_decode append
+            a) The best IoU as a positive
+            b) Any region proposal with IoU > self.IoU_threshold
+
+            Note that we are doing this with the box definitions without
+            tuning to keep the RPN from running away from the original definitions.
+            """
+
+            # Fill in negative examples by random sampling
+            count = 0
+            for i in range(CUTOFF):
+
+                if count >= self.rpn_minibatch / features.shape[0]:
+                    break
+
+                # Pick one at random
+                ixx = np.random.randint(self.anchor_xx.shape[1])
+                iyy = np.random.randint(self.anchor_xx.shape[0])
+                ik = np.random.randint(self.k)
+
+                # Get coords for the guess
+                xx = self.anchor_xx[iyy, ixx]
+                yy = self.anchor_yy[iyy, ixx]
+                hh = self.hh[ik]
+                ww = self.ww[ik]
+
+                # Check if this is a valid negative RoI
+                if self.valid_mask[iyy, iyy, ik] and (
+                    len(this_label) == 0
+                    or all(
+                        [
+                            IoU < self.IoU_neg_threshold
+                            for IoU in self.ground_truth_IoU(this_label, xx, yy, hh, ww)
+                        ]
+                    )
+                ):
+                    rois.append([xx, yy, hh, ww, {}])
+                    count += 1
+
+            # Short circuit if there are no starfish
+            if len(this_label) == 0:
+                continue
+
+            # If there are positive examples return the example with the highest IoU per example
+            # and any with IoU > threshold. First do the giant IoU calculation k times per annotation
+            # Axis dimensions are labels, k, yy, xx
+            ground_truth_IoU = np.stack(
+                [
+                    self.ground_truth_IoU(
+                        this_label,
+                        self.anchor_xx,
+                        self.anchor_yy,
+                        self.hh[ik],
+                        self.ww[ik],
+                    )
+                    for ik in range(self.k)
+                ]
+            ).swapaxes(0, 1)
+
+            # Acquire anything with IoU > self.IoU_pos_threshold
+            for ilabel in range(ground_truth_IoU.shape[0]):
+                pos_slice = np.argwhere(
+                    np.logical_or(
+                        ground_truth_IoU[ilabel, :, :, :] > self.IoU_pos_threshold,
+                        ground_truth_IoU[ilabel, :, :, :]
+                        == np.max(ground_truth_IoU[ilabel, :, :, :]),
+                    )
+                )
+                for i in range(pos_slice.shape[0]):
+                    ik, iyy, ixx = pos_slice[i, :]
+                    xx = self.anchor_xx[iyy, ixx]
+                    yy = self.anchor_yy[iyy, ixx]
+                    hh = self.hh[ik]
+                    ww = self.ww[ik]
+                    rois.append([xx, yy, hh, ww, this_label[ilabel]])
+
+        # Something has gone horribly wrong with collecting RoIs, so skip this training step
+        if len(rois) < self.rpn_minibatch:
+            warnings.warn(
+                "Something has gone wrong with collecting minibatch RoIs, skip training step."
+            )
+            return None
+
+        # Finally, cut the list of RoIs down to something usable.
+        # Do this by sorting on the existence of a ground truth
+        # box + a small perturbation to randomly sample
+        rois = sorted(
+            rois,
+            key=lambda roi: 1.0 * float("x" not in roi[-1].keys())
+            + 0.001 * np.random.random(),
+        )
+        rois = (
+            rois[: int(self.rpn_minibatch / 2)]
+            + rois[-1 * int(self.rpn_minibatch / 2) :]
+        )
+
+        return rois
 
     def train_step(self):
 
