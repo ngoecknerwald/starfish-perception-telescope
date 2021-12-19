@@ -1,5 +1,3 @@
-# This will contain the RPN class, here a totally empty stub
-
 # NOTE, from here on all variables denoted xx, yy, hh, ww refer to *feature space*
 # and all variables denoted x, y, h, w denote *image space*
 
@@ -410,6 +408,8 @@ class RPNWrapper:
         scores cls and bounding boxes bbox on the set of regions
         of interest RoIs.
 
+        Arguments:
+
         cls : tensor, shape (i_image, iyy, ixx, ik)
             Slice of the output from the RPN corresponding to the
             classification (object-ness) field. From here on out
@@ -437,26 +437,21 @@ class RPNWrapper:
                 continue
 
             # Refer the corners of the bounding box back to image space
-            # Note this looks inefficient also calling the central point,
-            # but we want to keep the assumptions about backbone.feature_coords_to_image_coords()
-            # to an absolute minimum
-            xmin, ymin = self.backbone.feature_coords_to_image_coords(
-                self.anchor_xx[roi[1], roi[2]] - self.ww[roi[3]] / 2,
-                self.anchor_yy[roi[1], roi[2]] - self.hh[roi[3]] / 2,
+            # Note that this assumes said mapping is linear.
+            x, y = self.backbone.feature_coords_to_image_coords(
+                self.anchor_xx[roi[1], roi[2]],
+                self.anchor_yy[roi[1], roi[2]],
             )
-            xcenter, ycenter = self.backbone.feature_coords_to_image_coords(
-                self.anchor_xx[roi[1], roi[2]], self.anchor_yy[roi[1], roi[2]]
-            )
-            xmax, ymax = self.backbone.feature_coords_to_image_coords(
-                self.anchor_xx[roi[1], roi[2]] + self.ww[roi[3]] / 2,
-                self.anchor_yy[roi[1], roi[2]] + self.hh[roi[3]] / 2,
+            w, h = self.backbone.feature_coords_to_image_coords(
+                self.ww[roi[3]],
+                self.hh[roi[3]],
             )
 
             # Compare anchor to ground truth
-            t_x_star = (xcenter - roi[4]['x']) / (xmax - xmin)
-            t_y_star = (ycenter - roi[4]['y']) / (ymax - ymin)
-            t_w_star = np.log(roi[4]['width'] / (xmax - xmin))
-            t_h_star = np.log(roi[4]['height'] / (ymax - ymin))
+            t_x_star = (x - roi[4]['x']) / (w)
+            t_y_star = (y - roi[4]['y']) / (h)
+            t_w_star = np.log(roi[4]['width'] / (w))
+            t_h_star = np.log(roi[4]['height'] / (h))
 
             # Huber loss, which AFAIK is the same as smooth L1
             loss += self.bbox_reg(
@@ -501,3 +496,120 @@ class RPNWrapper:
         # Apply gradients in the optimizer
         gradients = tape.gradient(loss, self.rpn.trainable_variables)
         self.optimizer.apply_gradients(zip(gradients, self.rpn.trainable_variables))
+
+    def train_rpn(self, train_dataset, labelfunc, epochs=10):
+        '''
+        Main training loop iterating over a dataset.
+
+        Arguments:
+
+        train_dataset: tensorflow dataset
+            Dataset of input images. Minibatch size and validation
+            split are determined when this is created.
+        labelfunc : function
+            Dictionary for translating the labels in to the dataset into
+            ground truth annotations, usually DataLoaderFull.decode_label
+        epochs : int
+            Number of epochs to run training for.
+
+        '''
+
+        # Training loop, all complexity is in training_step()
+        for epoch in range(epochs):
+
+            print('RPN training epoch %d' % epoch, end='')
+
+            for train_x, label_x in train_dataset:
+
+                print('.', end='')
+
+                # Run training data through the backbone
+                features = self.backbone.extractor(train_x)
+
+                # Run gradient step with these features and the ground truth labels
+                self.training_step(features, [labelfunc(label) for label in label_x])
+
+            print('')
+
+    def propose_regions(self, minibatch, top=-1):
+        '''
+        Run the RPN in forward mode on a minibatch of images.
+        This method is used to train the final classification network
+        and to evaluate at test time.
+
+        Arguments:
+
+        minibatch : dataset minibatch
+            Set of image(s) to run through the network and extract features from.
+        top : int
+            Return this number of region proposals with the highest classification
+            scores. If <= 0 then return everything.
+
+        Returns:
+
+        objectness, x, y, w, h
+            Numpy arrays with dimension [image, region proposals]
+            sorted by likelihood of being a starfish according to the RPN
+        '''
+
+        # Run the feature extractor and the RPN in forward mode
+        features = self.backbone.extractor(minibatch)
+        cls, bbox = self.rpn(features)
+
+        # Dimension is image, iyy, ixx, ik were ik is
+        # [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...]
+        objectness = cls[:, :, :, self.k :].numpy()
+
+        # Dimension for bbox is same as cls but ik follows
+        # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
+        # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
+        # Now cue the infinite magic numpy indexing
+        xxs = self.anchor_xx[np.newaxis, :, :, np.newaxis] + (
+            bbox[:, :, :, : self.k].numpy()
+            * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
+        )
+        yys = self.anchor_yy[np.newaxis, :, :, np.newaxis] + (
+            bbox[:, :, :, self.k : 2 * self.k].numpy()
+            * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
+        )
+        wws = self.ww[np.newaxis, np.newaxis, np.newaxis, :] * np.exp(
+            bbox[:, :, :, 2 * self.k : 3 * self.k].numpy()
+        )
+        hhs = self.hh[np.newaxis, np.newaxis, np.newaxis, :] * np.exp(
+            bbox[:, :, :, 3 * self.k : 4 * self.k].numpy()
+        )
+
+        output_gather = {}
+
+        # Conver to image plane
+        (
+            output_gather['x'],
+            output_gather['y'],
+        ) = self.backbone.feature_coords_to_image_coords(xxs, yys)
+        (
+            output_gather['w'],
+            output_gather['h'],
+        ) = self.backbone.feature_coords_to_image_coords(wws, hhs)
+
+        # Reshape to flatten along proposal dimension within an image
+        objectness = objectness.reshape((objectness.shape[0], -1), order='C')
+        for key in output_gather.keys():
+            output_gather[key] = output_gather[key].reshape((x.shape[0], -1), order='C')
+
+        # Sort things by objectness
+        argsort = np.argsort(objectness, axis=-1)
+        objectness = objectness[argsort[:, ::-1]]
+        for key in output_gather.keys():
+            output_gather[key] = output_gather[key][argsort[:, ::-1]]
+
+        # If no limit requested, just return everything
+        if top < 1:
+            top = objectness.shape[1]
+
+        return (
+            objectness[:, :top],
+            output_gather['x'][:, :top],
+            output_gather['y'][:, :top],
+            output_gather['w'][:, :top],
+            output_gather['h'][:, :top],
+        )
