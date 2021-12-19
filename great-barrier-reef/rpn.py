@@ -119,6 +119,12 @@ class RPNWrapper:
         # Optimizer
         self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
 
+        # Classification loss
+        self.objectness = tf.keras.losses.CategoricalCrossentropy()
+
+        # Regression loss
+        self.bbox_reg = tf.keras.losses.Huber()
+
     def build_anchor_boxes(self):
         """
         Build the anchor box sizes in the feature space.
@@ -269,26 +275,25 @@ class RPNWrapper:
         return IoU
 
     # Method that will eventually belong to the RPNWrapper class
-    def accumulate_roi(self, features, label_decode):
+    def accumulate_roi(self, label_decode, image_minibatch):
         """
         Make a list of RoIs of positive and negative examples
         and their corresponding ground truth annotations.
 
         Arguments:
 
-        features : tensor
-            Minibatch of input images after running through the backbone.
         label_decode : list of dicts
             Decoded labels for this minibatch
+        image_minibatch : int
+            Number of images in a minibatch.
 
         Returns:
 
-        list of [xx, yy, hh, ww, {<label or empty>}]
+        list of [i, iyy, ixx, ik, {<label or empty>}] where variables
+        denote indices into the RPN output
 
         """
 
-        # Sanity checking
-        assert features.shape[0] == len(label_decode)
         rois = []
 
         # Now iterate over images in the minibatch
@@ -312,7 +317,7 @@ class RPNWrapper:
             count = 0
             for i in range(CUTOFF):
 
-                if count >= self.rpn_minibatch / features.shape[0]:
+                if count >= self.rpn_minibatch / image_minibatch:
                     break
 
                 # Pick one at random
@@ -336,7 +341,7 @@ class RPNWrapper:
                         ]
                     )
                 ):
-                    rois.append([xx, yy, hh, ww, {}])
+                    rois.append([i, iyy, ixx, ik, {}])
                     count += 1
 
             # Short circuit if there are no starfish
@@ -368,13 +373,13 @@ class RPNWrapper:
                         == np.max(ground_truth_IoU[ilabel, :, :, :]),
                     )
                 )
-                for i in range(pos_slice.shape[0]):
-                    ik, iyy, ixx = pos_slice[i, :]
+                for j in range(pos_slice.shape[0]):
+                    ik, iyy, ixx = pos_slice[j, :]
                     xx = self.anchor_xx[iyy, ixx]
                     yy = self.anchor_yy[iyy, ixx]
                     hh = self.hh[ik]
                     ww = self.ww[ik]
-                    rois.append([xx, yy, hh, ww, this_label[ilabel]])
+                    rois.append([i, iyy, ixx, ik, this_label[ilabel]])
 
         # Something has gone horribly wrong with collecting RoIs, so skip this training step
         if len(rois) < self.rpn_minibatch:
@@ -398,6 +403,101 @@ class RPNWrapper:
 
         return rois
 
-    def train_step(self):
+    def compute_loss(self, cls, bbox, rois):
 
-        pass
+        '''
+        Compute the loss function for a set of classification
+        scores cls and bounding boxes bbox on the set of regions
+        of interest RoIs.
+
+        cls : tensor, shape (i_image, iyy, ixx, ik)
+            Slice of the output from the RPN corresponding to the
+            classification (object-ness) field. From here on out
+            the k ordering is [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...].
+        bbox : tensor, shape (i_image, iyy, ixx, ik)
+            Slice of the output from the RPN. The k dimension is ordered
+            following a similar convention as cls:
+            [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
+            ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
+        rois : list or RoIs, [i, iyy, ixx, ik, {<label or empty>}]
+            Output of accumulate_roi(), see training_step for use case.
+
+        '''
+
+        # First, compute the categorical cross entropy objectness loss
+        cls_select = [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
+        ground_truth = [[1, 0] if 'x' not in roi[4].keys() else [0, 1] for roi in rois]
+        loss = self.objectness(ground_truth, cls_select)
+
+        # Now add the bounding box term
+        for roi in rois:
+
+            # Short circuit if there is no ground truth
+            if 'x' not in roi[4].keys():
+                continue
+
+            # Refer the corners of the bounding box back to image space
+            # Note this looks inefficient also calling the central point,
+            # but we want to keep the assumptions about backbone.feature_coords_to_image_coords()
+            # to an absolute minimum
+            xmin, ymin = self.backbone.feature_coords_to_image_coords(
+                self.anchor_xx[roi[1], roi[2]] - self.ww[roi[3]] / 2,
+                self.anchor_yy[roi[1], roi[2]] - self.hh[roi[3]] / 2,
+            )
+            xcenter, ycenter = self.backbone.feature_coords_to_image_coords(
+                self.anchor_xx[roi[1], roi[2]], self.anchor_yy[roi[1], roi[2]]
+            )
+            xmax, ymax = self.backbone.feature_coords_to_image_coords(
+                self.anchor_xx[roi[1], roi[2]] + self.ww[roi[3]] / 2,
+                self.anchor_yy[roi[1], roi[2]] + self.hh[roi[3]] / 2,
+            )
+
+            # Compare anchor to ground truth
+            t_x_star = (xcenter - roi[4]['x']) / (xmax - xmin)
+            t_y_star = (ycenter - roi[4]['y']) / (ymax - ymin)
+            t_w_star = np.log(roi[4]['width'] / (xmax - xmin))
+            t_h_star = np.log(roi[4]['height'] / (ymax - ymin))
+
+            # Huber loss, which AFAIK is the same as smooth L1
+            loss += self.bbox_reg(
+                [t_x_star, t_y_star, t_w_star, t_h_star],
+                bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
+            )
+
+        return loss
+
+    def training_step(self, features, label_decode):
+
+        '''
+        Take a convolved feature map, compute RoI, and
+        update the RPN comparing to the ground truth.
+
+        Arguments:
+
+        features : tensor
+            Minibatch of input images after running through the backbone.
+        label_decode : list of dicts
+            Decoded labels for this minibatch
+
+        '''
+
+        rois = self.accumulate_roi(label_decode, features.shape[0])
+
+        # Something went wrong with making a list of RoIs, return
+        if rois is None:
+            return
+
+        # Note that we could in theory fine-tune the method by moving the feature
+        # convolution by the backbone into the tf.GradientTape() block, but we are not
+        # doing that here.
+
+        with tf.GradientTape() as tape:
+            # Call the RPN
+            cls, bbox = self.rpn(features)
+
+            # Compute the loss using the classification scores and bounding boxes
+            loss = self.compute_loss(cls, bbox, rois)
+
+        # Apply gradients in the optimizer
+        gradients = tape.gradient(loss, self.rpn.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.rpn.trainable_variables))
