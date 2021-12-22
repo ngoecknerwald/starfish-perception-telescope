@@ -106,3 +106,29 @@ class Backbone_InceptionResNetV2(Backbone):
         # The things connected to this model will need to know output geometry
         self.input_shape = input_shape
         self.output_shape = self.extractor.output_shape[1:]
+
+
+class Backbone_VGG16(Backbone):
+    def __init__(self, input_shape=(720, 1280, 3), **kwargs):
+        """
+        Same arguments as Backbone_InceptionResNetV2,
+        but using the smaller VGG16 network to speed up training.
+
+        Arguments:
+
+        input_shape: tuple
+            Shape of the input images.
+        """
+
+        super().__init__()
+
+        self.extractor = tf.keras.applications.vgg16.VGG16(
+            include_top=False,
+            weights="imagenet",
+            input_tensor=None,
+            input_shape=input_shape,
+            pooling=None,
+        )
+
+        self.input_shape = input_shape
+        self.output_shape = self.extractor.output_shape[1:]
