@@ -493,9 +493,15 @@ class RPNWrapper:
             # Compute the loss using the classification scores and bounding boxes
             loss = self.compute_loss(cls, bbox, rois)
 
-        # Apply gradients in the optimizer
+        # Apply gradients in the optimizer. Note that TF will throw spurious warnings if gradients
+        # don't exist for the bbox regression if there were no + examples in the minibatch
+        # This isn't actually an error, so list comprehension around it
         gradients = tape.gradient(loss, self.rpn.trainable_variables)
-        self.optimizer.apply_gradients(zip(gradients, self.rpn.trainable_variables))
+        self.optimizer.apply_gradients(
+            (grad, var)
+            for (grad, var) in zip(gradients, self.rpn.trainable_variables)
+            if grad is not None
+        )
 
     def train_rpn(self, train_dataset, labelfunc, epochs=10):
         '''
