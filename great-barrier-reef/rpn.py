@@ -558,8 +558,12 @@ class RPNWrapper:
             sorted by likelihood of being a starfish according to the RPN
         '''
 
-        # Run the feature extractor and the RPN in forward mode
-        features = self.backbone.extractor(minibatch)
+        # Run the feature extractor and the RPN in forward mode, adding an additional
+        # image dimension if necessary
+        try:
+            features = self.backbone.extractor(minibatch)
+        except:
+            features = self.backbone.extractor(minibatch[None, :, :, :])
         cls, bbox = self.rpn(features)
 
         # Dimension is image, iyy, ixx, ik were ik is
@@ -600,13 +604,15 @@ class RPNWrapper:
         # Reshape to flatten along proposal dimension within an image
         objectness = objectness.reshape((objectness.shape[0], -1), order='C')
         for key in output_gather.keys():
-            output_gather[key] = output_gather[key].reshape((x.shape[0], -1), order='C')
+            output_gather[key] = output_gather[key].reshape(
+                (output_gather[key].shape[0], -1), order='C'
+            )
 
         # Sort things by objectness
         argsort = np.argsort(objectness, axis=-1)
-        objectness = objectness[argsort[:, ::-1]]
+        objectness = objectness.take(argsort[:, ::-1])
         for key in output_gather.keys():
-            output_gather[key] = output_gather[key][argsort[:, ::-1]]
+            output_gather[key] = output_gather.take(argsort[:, ::-1])
 
         # If no limit requested, just return everything
         if top < 1:
