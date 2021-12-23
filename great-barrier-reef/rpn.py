@@ -313,7 +313,7 @@ class RPNWrapper:
 
             # Fill in negative examples by random sampling
             count = 0
-            for i in range(CUTOFF):
+            for _ignore in range(CUTOFF):
 
                 if count >= self.rpn_minibatch / image_minibatch:
                     break
