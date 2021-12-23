@@ -78,6 +78,31 @@ class Backbone:
             y * float(self.output_shape[0] / self.input_shape[0]),
         )
 
+    def pretrain(self, dataloader, epochs=10, optimizer='adam', optimizer_kwargs={}):
+        """
+        Pretrain a backbone to do classification on starfish / not starfish thumbnails.
+        Requires that self.extractor be an instantiated valid keras model and trains
+        on the thumbnail classification task.
+
+        Arguments:
+
+        dataloader : data_utils.DataLoaderThumbnail
+            Thumbnail data loading class. Handles file I/O and batching.
+        epochs : int
+            Number of epochs to train the backbone.
+        optimizer : string or tf.keras.optimizer
+            Either the name of an optimizer ('adam') or an optimizer known to TensorFlow.
+        optimizer_kwargs : dict
+            Set of keyword arguments to pass to the optimizer.
+
+        """
+
+        # Check to make sure the backbone has actually been instantiated
+        assert isinstance(self.extractor, tf.keras.Model)
+
+        # Now we have to compile the model
+        pass
+
 
 class Backbone_InceptionResNetV2(Backbone):
 
@@ -95,7 +120,7 @@ class Backbone_InceptionResNetV2(Backbone):
         super().__init__()
 
         # Feature extractor,
-        self.extractor = tf.keras.applications.inception_resnet_v2.InceptionResNetV2(
+        self.network = tf.keras.applications.inception_resnet_v2.InceptionResNetV2(
             include_top=False,
             weights="imagenet",
             input_tensor=None,
@@ -105,7 +130,12 @@ class Backbone_InceptionResNetV2(Backbone):
 
         # The things connected to this model will need to know output geometry
         self.input_shape = input_shape
-        self.output_shape = self.extractor.output_shape[1:]
+        self.output_shape = self.network.output_shape[1:]
+
+        # Fold the image preprocessing into the model
+        self.extractor = tf.keras.Sequential(
+            [tf.keras.applications.inception_resnet_v2.preprocess_input, self.network]
+        )
 
 
 class Backbone_VGG16(Backbone):
@@ -122,7 +152,7 @@ class Backbone_VGG16(Backbone):
 
         super().__init__()
 
-        self.extractor = tf.keras.applications.vgg16.VGG16(
+        self.network = tf.keras.applications.vgg16.VGG16(
             include_top=False,
             weights="imagenet",
             input_tensor=None,
@@ -131,4 +161,10 @@ class Backbone_VGG16(Backbone):
         )
 
         self.input_shape = input_shape
-        self.output_shape = self.extractor.output_shape[1:]
+        self.output_shape = self.network.output_shape[1:]
+
+        # Fold the image preprocessing into the model
+        # The different pretrained models expect different inputs, so propagate that into here
+        self.extractor = tf.keras.Sequential(
+            [tf.keras.applications.vgg16.preprocess_input, self.network]
+        )
