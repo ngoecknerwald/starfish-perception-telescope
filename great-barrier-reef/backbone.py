@@ -159,7 +159,7 @@ class Backbone:
             tf.keras.optimizers.deserialize(
                 {
                     'class_name': optimizer,
-                    config: {
+                    'config': {
                         'learning_rate': learning_rates[1],
                         **optimizer_kwargs,
                     },
