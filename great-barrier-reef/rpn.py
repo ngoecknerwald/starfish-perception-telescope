@@ -612,7 +612,7 @@ class RPNWrapper:
         argsort = np.argsort(objectness, axis=-1)
         objectness = objectness.take(argsort[:, ::-1])
         for key in output_gather.keys():
-            output_gather[key] = output_gather.take(argsort[:, ::-1])
+            output_gather[key] = output_gather[key].take(argsort[:, ::-1])
 
         # If no limit requested, just return everything
         if top < 1:
