@@ -134,7 +134,12 @@ class Backbone_InceptionResNetV2(Backbone):
 
         # Fold the image preprocessing into the model
         self.extractor = tf.keras.Sequential(
-            [tf.keras.applications.inception_resnet_v2.preprocess_input, self.network]
+            [
+                tf.keras.layers.Lambda(
+                    tf.keras.applications.inception_resnet_v2.preprocess_input
+                ),
+                self.network,
+            ]
         )
 
 
@@ -166,5 +171,8 @@ class Backbone_VGG16(Backbone):
         # Fold the image preprocessing into the model
         # The different pretrained models expect different inputs, so propagate that into here
         self.extractor = tf.keras.Sequential(
-            [tf.keras.applications.vgg16.preprocess_input, self.network]
+            [
+                tf.keras.layers.Lambda(tf.keras.applications.vgg16.preprocess_input),
+                self.network,
+            ]
         )
