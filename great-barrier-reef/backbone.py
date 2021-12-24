@@ -78,7 +78,17 @@ class Backbone:
             y * float(self.output_shape[0] / self.input_shape[0]),
         )
 
-    def pretrain(self, dataloader, epochs=10, optimizer='adam', optimizer_kwargs={}, fit_kwargs={}, save_path=None):
+    def pretrain(
+        self,
+        training_data,
+        validation_data=None,
+        optimizer='adam',
+        epochs=[2, 10],
+        learning_rates=[1e-3, 1e-5],
+        optimizer_kwargs={},
+        fit_kwargs={},
+        return_history=False,
+    ):
         """
         Pretrain a backbone to do classification on starfish / not starfish thumbnails.
         Requires that self.extractor be an instantiated valid keras model and trains
@@ -86,81 +96,94 @@ class Backbone:
 
         Arguments:
 
-        dataloader : data_utils.DataLoaderThumbnail
-            Thumbnail data loading class. Handles file I/O and batching.
-        epochs : int
-            Number of epochs to train the backbone.
-        optimizer : string or tf.keras.optimizer
+        training_data : data_utils.DataLoaderThumbnail.get_training()
+            Training dataset. Handles file I/O and batching.
+        validation_data : data_utils.DataLoaderThumbnail.get_validation() or None
+            Validation dataset. Pass in None to train on the full dataset for the production run.
+        optimizer : string or tf.keras.optimizer.Optimizer subclass
             Either the name of an optimizer ('adam') or an optimizer known to TensorFlow.
+            If the optimizer is already instantiated learning_rates[1] is ignored.
+        epochs : tuple of int
+            Number of epochs to fine tune. First int is the number of epochs to train only the
+            classification layer the second int is for fine tuning the full backbone.
+        learning_rates : tuple of float
+            Two learning rates, the first to initially train the classification layers
+            and the second to fine tune the whole backbone. The second is usually much smaller.
         optimizer_kwargs : dict
-            Set of keyword arguments to pass to the optimizer.
+            Set of keyword arguments to pass to the optimizer for tuning the backbone itself.
         fit_kwargs : dict
-            Set of keyword arguments to pass to classifier and finetuner training loops.
-        save_path : None or str
-            Save backbone weights to path 
-
+            Set of keyword arguments to pass to the fine tuning fit call.
+        return_history : bool
+            Return the training history
         """
 
         # Check to make sure the backbone has actually been instantiated
         assert isinstance(self.extractor, tf.keras.Model)
 
-        # First, freeze the feature extractor
+        # First, freeze the feature extractor and train the classification layers
         self.extractor.trainable = False
 
-        # Define the classification layers
-        inputs = tf.keras.Input(self.input_shape)
-        x = self.extractor(inputs, training=False)
-        #x = Dropout(0.2)(x) - necessary? 
-        x = tf.keras.layers.GlobalAveragePooling2D()(x)
-        outputs = tf.keras.layers.Dense(1)(x)
-        model = tf.keras.Model(inputs, outputs)
+        # It's a plain stack of layers, so let's just use Sequential for readability
+        # TODO do we want to put the dropout before or after the GAP2D? We originally
+        # had dropout before the GAP but it makes more sense after in my head. Will revisit later.
+        model = tf.keras.Sequential(
+            [
+                self.extractor,
+                tf.keras.layers.GlobalAveragePooling2D(),
+                tf.keras.Dropout(0.2),
+                tf.keras.layers.Dense(1),
+            ]
+        )
 
+        # Compile the model with a fixed optimizer,
+        # only pass in a learning rate and number of epochs
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rates[0]),
+            loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+            metrics=[tf.keras.metrics.BinaryAccuracy()]
+            if validation_data is not None
+            else None,
+        )
+        classify = model.fit(
+            training_data,
+            epochs=epochs[0],
+            validation_data=validation_data,
+        )
 
+        # Now unfreeze extractor
+        self.extractor.trainable = True
 
-        # Compile the model with a fixed optimizer
-        model.compile(optimizer=tf.keras.optimizers.Adam(1e-3),
-              loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
-              metrics=[tf.keras.metrics.BinaryAccuracy()])
-
-        # Get training and validation data from loader
-        training_data = dataloader.get_training(validation_split=0.2, batch_size=64, shuffle=True)
-        validation_data = dataloader.get_validation(validation_split=0.2, batch_size=64, shuffle=False)
-
-        # Train the classification layers for fixed number of epochs
-        classify_hist = model.fit(
-          training_data, 
-          epochs=10, 
-          validation_data=validation_data, 
-          **fit_kwargs).history
-
-        # Now unfreeze extractor 
-        self.extractor.trainable=True
-
-        # Define the fine-tuning optimizer
-        if isinstance(optimizer, tf.keras.optimizers.Optimizer):
-            pass
-        elif optimizer == 'adam':
-            optimizer = tf.keras.optimizers.Adam(**optimizer_kwargs)
-        else:
-            raise ValueError("optimizer %r not supported"%optimizer)
+        # Define the fine-tuning optimizer, use their deserialization
+        # methods instead of writing our own
+        if not isinstance(optimizer, tf.keras.optimizers.Optimizer):
+            tf.keras.optimizers.deserialize(
+                {
+                    'class_name': optimizer,
+                    'learning_rate': learning_rates[1],
+                    **optimizer_kwargs,
+                }
+            )
 
         # Recompile with new optimizer
-        model.compile(optimizer=optimizer,
-              loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
-              metrics=[tf.keras.metrics.BinaryAccuracy()])
+        model.compile(
+            optimizer=optimizer,
+            loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+            metrics=[tf.keras.metrics.BinaryAccuracy()]
+            if validation_data is not None
+            else None,
+        )
 
         # And fine-tune
-        finetune_hist = model.fit(
-          training_data, 
-          epochs=epochs, 
-          validation_data=validation_data, 
-          **fit_kwargs).history
+        finetune = model.fit(
+            training_data,
+            epochs=epochs[1],
+            validation_data=validation_data,
+            **fit_kwargs
+        )
 
-        # Finally, save the network parameters
-        if save_path is not None:
-          self.save_backbone(save_path)
-
-        return classify_hist, finetune_hist
+        # Return the training history if requested
+        if return_history:
+            return classify.history, finetune.history
 
 
 class Backbone_InceptionResNetV2(Backbone):
