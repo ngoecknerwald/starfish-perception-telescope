@@ -78,7 +78,7 @@ class Backbone:
             y * float(self.output_shape[0] / self.input_shape[0]),
         )
 
-    def pretrain(self, dataloader, epochs=10, optimizer='adam', optimizer_kwargs={}):
+    def pretrain(self, dataloader, epochs=10, optimizer='adam', optimizer_kwargs={}, save_path="test-save-path"):
         """
         Pretrain a backbone to do classification on starfish / not starfish thumbnails.
         Requires that self.extractor be an instantiated valid keras model and trains
@@ -100,8 +100,54 @@ class Backbone:
         # Check to make sure the backbone has actually been instantiated
         assert isinstance(self.extractor, tf.keras.Model)
 
-        # Now we have to compile the model
-        pass
+        # First, freeze the feature extractor
+        self.extractor.trainable = False
+
+        # Define the classification layers
+        inputs = tf.keras.Input(self.input_shape)
+        x = self.extractor(inputs, training=False)
+        #x = Dropout(0.2)(x) - necessary? 
+        x = tf.keras.layers.GlobalAveragePooling2D()(x)
+        outputs = tf.keras.layers.Dense(1)(x)
+        model = tf.keras.Model(inputs, outputs)
+
+
+
+        # Compile the model with a fixed optimizer
+        model.compile(optimizer=tf.keras.optimizers.Adam(1e-3),
+              loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+              metrics=[tf.keras.metrics.BinaryAccuracy()])
+
+        # Get training and validation data from loader
+        training_data = dataloader.get_training(validation_split=0.2, batch_size=64, shuffle=True)
+        validation_data = dataloader.get_validation(validation_split=0.2, batch_size=64, shuffle=False)
+
+        # Train the classification layers for fixed number of epochs
+        classify_hist = model.fit(training_data, epochs=1, validation_data=validation_data).history
+
+        # Now unfreeze extractor 
+        self.extractor.trainable=True
+
+        # Define the fine-tuning optimizer
+        if isinstance(optimizer, tf.keras.optimizer):
+            pass
+        elif optimizer == 'adam':
+            optimizer = tf.keras.optimizers.Adam(**optimizer_kwargs)
+        else:
+            raise ValueError("optimizer %r not supported"%optimizer)
+
+        # Recompile with new optimizer
+        model.compile(optimizer=optimizer,
+              loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+              metrics=[tf.keras.metrics.BinaryAccuracy()])
+
+        # And fine-tune
+        finetune_hist = model.fit(training_data, epochs=epochs, validation_data=validation_data).history
+
+        # Finally, save the network parameters
+        self.save_backbone(save_path)
+
+        return classify_hist, finetune_hist
 
 
 class Backbone_InceptionResNetV2(Backbone):
