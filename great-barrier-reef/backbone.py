@@ -129,8 +129,8 @@ class Backbone:
         model = tf.keras.Sequential(
             [
                 self.extractor,
+                tf.keras.layers.Dropout(0.2),
                 tf.keras.layers.GlobalAveragePooling2D(),
-                tf.keras.Dropout(0.2),
                 tf.keras.layers.Dense(1),
             ]
         )
@@ -159,8 +159,10 @@ class Backbone:
             tf.keras.optimizers.deserialize(
                 {
                     'class_name': optimizer,
-                    'learning_rate': learning_rates[1],
-                    **optimizer_kwargs,
+                    config: {
+                        'learning_rate': learning_rates[1],
+                        **optimizer_kwargs,
+                    },
                 }
             )
 
