@@ -78,7 +78,7 @@ class Backbone:
             y * float(self.output_shape[0] / self.input_shape[0]),
         )
 
-    def pretrain(self, dataloader, epochs=10, optimizer='adam', optimizer_kwargs={}, save_path="test-save-path"):
+    def pretrain(self, dataloader, epochs=10, optimizer='adam', optimizer_kwargs={}, fit_kwargs={}, save_path=None):
         """
         Pretrain a backbone to do classification on starfish / not starfish thumbnails.
         Requires that self.extractor be an instantiated valid keras model and trains
@@ -94,6 +94,10 @@ class Backbone:
             Either the name of an optimizer ('adam') or an optimizer known to TensorFlow.
         optimizer_kwargs : dict
             Set of keyword arguments to pass to the optimizer.
+        fit_kwargs : dict
+            Set of keyword arguments to pass to classifier and finetuner training loops.
+        save_path : None or str
+            Save backbone weights to path 
 
         """
 
@@ -123,13 +127,17 @@ class Backbone:
         validation_data = dataloader.get_validation(validation_split=0.2, batch_size=64, shuffle=False)
 
         # Train the classification layers for fixed number of epochs
-        classify_hist = model.fit(training_data, epochs=1, validation_data=validation_data).history
+        classify_hist = model.fit(
+          training_data, 
+          epochs=10, 
+          validation_data=validation_data, 
+          **fit_kwargs).history
 
         # Now unfreeze extractor 
         self.extractor.trainable=True
 
         # Define the fine-tuning optimizer
-        if isinstance(optimizer, tf.keras.optimizer):
+        if isinstance(optimizer, tf.keras.optimizers.Optimizer):
             pass
         elif optimizer == 'adam':
             optimizer = tf.keras.optimizers.Adam(**optimizer_kwargs)
@@ -142,10 +150,15 @@ class Backbone:
               metrics=[tf.keras.metrics.BinaryAccuracy()])
 
         # And fine-tune
-        finetune_hist = model.fit(training_data, epochs=epochs, validation_data=validation_data).history
+        finetune_hist = model.fit(
+          training_data, 
+          epochs=epochs, 
+          validation_data=validation_data, 
+          **fit_kwargs).history
 
         # Finally, save the network parameters
-        self.save_backbone(save_path)
+        if save_path is not None:
+          self.save_backbone(save_path)
 
         return classify_hist, finetune_hist
 
