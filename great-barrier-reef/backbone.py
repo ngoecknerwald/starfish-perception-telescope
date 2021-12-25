@@ -25,7 +25,7 @@ class Backbone:
             Save path for the (tuned) backbone model.
         """
 
-        tf.saved_model.save(self.extractor, path)
+        tf.keras.models.save_model(self.network, path)
 
     def load_backbone(self, path):
         """
@@ -35,7 +35,9 @@ class Backbone:
             Load path for the (tuned) backbone model.
         """
 
-        self.extractor = tf.saved_model.load(path)
+        local_network = tf.keras.models.load_model(path)
+        self.network.set_weights(local_network.get_weights())
+        del local_network
 
     def feature_coords_to_image_coords(self, xx, yy):
         """
@@ -84,7 +86,7 @@ class Backbone:
         validation_data=None,
         optimizer='adam',
         epochs=[2, 10],
-        learning_rates=[1e-3, 1e-5],
+        learning_rates=[1e-3, 1e-6],
         optimizer_kwargs={},
         fit_kwargs={},
         return_history=False,
@@ -109,6 +111,7 @@ class Backbone:
         learning_rates : tuple of float
             Two learning rates, the first to initially train the classification layers
             and the second to fine tune the whole backbone. The second is usually much smaller.
+            I have found good results fine tuning Inception ResNetv2 with 1e-6.
         optimizer_kwargs : dict
             Set of keyword arguments to pass to the optimizer for tuning the backbone itself.
         fit_kwargs : dict
@@ -183,6 +186,9 @@ class Backbone:
             **fit_kwargs
         )
 
+        # Now freeze the weights again
+        self.extractor.trainable = False
+
         # Return the training history if requested
         if return_history:
             return classify.history, finetune.history
@@ -191,7 +197,7 @@ class Backbone:
 class Backbone_InceptionResNetV2(Backbone):
 
     # Start by downloading pretrained weights from the Tensorflow hub
-    def __init__(self, input_shape=(720, 1280, 3), **kwargs):
+    def __init__(self, input_shape=(720, 1280, 3), weights='imagenet', **kwargs):
         """
         Initialize the network backbone. Downloads the Inception Resnet V2 pretrained on ImageNet.
 
@@ -199,6 +205,8 @@ class Backbone_InceptionResNetV2(Backbone):
 
         input_shape: tuple
             Shape of the input images.
+        weights : str or None
+            Set of weights to use initially.
         """
 
         super().__init__()
@@ -206,7 +214,7 @@ class Backbone_InceptionResNetV2(Backbone):
         # Feature extractor,
         self.network = tf.keras.applications.inception_resnet_v2.InceptionResNetV2(
             include_top=False,
-            weights="imagenet",
+            weights=weights,
             input_tensor=None,
             input_shape=input_shape,
             pooling=None,
@@ -228,7 +236,7 @@ class Backbone_InceptionResNetV2(Backbone):
 
 
 class Backbone_VGG16(Backbone):
-    def __init__(self, input_shape=(720, 1280, 3), **kwargs):
+    def __init__(self, input_shape=(720, 1280, 3), weights='imagenet', **kwargs):
         """
         Same arguments as Backbone_InceptionResNetV2,
         but using the smaller VGG16 network to speed up training.
@@ -237,13 +245,15 @@ class Backbone_VGG16(Backbone):
 
         input_shape: tuple
             Shape of the input images.
+        weights : str or None
+            Set of weights to use initially.
         """
 
         super().__init__()
 
         self.network = tf.keras.applications.vgg16.VGG16(
             include_top=False,
-            weights="imagenet",
+            weights=weights,
             input_tensor=None,
             input_shape=input_shape,
             pooling=None,
