@@ -49,6 +49,9 @@ class RPN(tf.keras.Model):
             strides=(1, 1),
         )
 
+    # TODO do we want to split out the cls and bbox steps?
+    # Also TODO figure out if we want use generalized IoU instead of
+    # the L1 loss
     def call(self, x):
         x = self.conv1(x)
         cls = self.cls(x)
@@ -151,9 +154,9 @@ class RPNWrapper:
         xx : int
             Pixel coordinate in the feature map.
         yy : int
-            Pixel corrdinate in the feature map.
+            Pixel coordinate in the feature map.
         ww : int
-            Pixel corrdinate in the feature map.
+            Pixel coordinate in the feature map.
         hh : int
             Pixel coordinate in the feature map.
 
