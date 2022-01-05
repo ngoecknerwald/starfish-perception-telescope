@@ -599,7 +599,18 @@ class RPNWrapper:
 
         # Dimension is image, iyy, ixx, ik were ik is
         # [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...]
-        objectness = cls[:, :, :, self.k :].numpy()
+        objectness_l0 = cls[:, :, :, : self.k].numpy()
+        objectness_l1 = cls[:, :, :, self.k :].numpy()
+
+        # Need to unpack a bit and hit with softmax
+        objectness_l0 = objectness_l0.reshape((objectness_l0.shape[0], -1))
+        objectness_l1 = objectness_l1.reshape((objectness_l1.shape[0], -1))
+        objectness = tf.nn.softmax(
+            np.stack([objectness_l0, objectness_l1]), axis=0
+        ).numpy()
+
+        # Cut to the one-hot bit
+        objectness = objectness[1, :, :]
 
         # Dimension for bbox is same as cls but ik follows
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
@@ -622,7 +633,6 @@ class RPNWrapper:
         )
 
         # Reshape to flatten along proposal dimension within an image
-        objectness = objectness.reshape((objectness.shape[0], -1))
         argsort = np.argsort(objectness, axis=-1)
         argsort = argsort[:, ::-1]
 
