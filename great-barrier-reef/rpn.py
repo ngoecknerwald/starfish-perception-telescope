@@ -617,11 +617,11 @@ class RPNWrapper:
         # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         # Now cue the infinite magic numpy indexing
         output = {}
-        xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] + (
+        xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] - (
             bbox[:, :, :, : self.k].numpy()
             * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
         )
-        yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] + (
+        yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] - (
             bbox[:, :, :, self.k : 2 * self.k].numpy()
             * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
         )
