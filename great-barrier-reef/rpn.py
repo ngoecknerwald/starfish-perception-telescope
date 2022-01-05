@@ -52,7 +52,7 @@ class RPN(tf.keras.Model):
             strides=(1, 1),
         )
         if self.dropout is not None:
-            self.dropout1 = (tf.keras.layers.Dropout(0.2),)
+            self.dropout1 = tf.keras.layers.Dropout(self.dropout)
 
     # Also TODO figure out if we want use generalized IoU instead of the L1 loss
     def call(self, x, training=False):
@@ -421,7 +421,81 @@ class RPNWrapper:
 
         return rois
 
-    def compute_loss(self, cls, bbox, rois):
+    def training_step(self, train_x, label_decode, update_backbone=False):
+
+        '''
+        Take a convolved feature map, compute RoI, and
+        update the RPN comparing to the ground truth.
+
+        Arguments:
+
+        features : tensor
+            Minibatch of input images (before running through the backbone)
+        label_decode : list of dicts
+            Decoded labels for this minibatch
+
+        '''
+
+        # Note that we could in theory fine-tune the method by moving the feature
+        # convolution by the backbone into the tf.GradientTape() block, but we are not doing that here.
+        features = self.backbone.extractor(train_x)
+
+        rois = self.accumulate_roi(label_decode, features.shape[0])
+
+        # Something went wrong with making a list of RoIs, return
+        if rois is None:
+            return
+
+        with tf.GradientTape() as tape:
+
+            # Call the RPN
+            cls, bbox = self.rpn(features, training=True)
+
+            # Compute the loss using the classification scores and bounding boxes
+            loss = self.compute_loss(cls, bbox, rois)
+
+        # Apply gradients in the optimizer. Note that TF will throw spurious warnings if gradients
+        # don't exist for the bbox regression if there were no + examples in the minibatch
+        # This isn't actually an error, so list comprehension around it
+        gradients = tape.gradient(loss, self.rpn.trainable_variables)
+        self.optimizer.apply_gradients(
+            (grad, var)
+            for (grad, var) in zip(gradients, self.rpn.trainable_variables)
+            if grad is not None
+        )
+
+    def train_rpn(self, train_dataset, labelfunc, epochs=10, update_backbone=False):
+        '''
+        Main training loop iterating over a dataset.
+
+        Arguments:
+
+        train_dataset: tensorflow dataset
+            Dataset of input images. Minibatch size and validation
+            split are determined when this is created.
+        labelfunc : function
+            Dictionary for translating the labels in to the dataset into
+            ground truth annotations, usually DataLoaderFull.decode_label
+        epochs : int
+            Number of epochs to run training for.
+
+        '''
+
+        # Training loop, all complexity is in training_step()
+        for epoch in range(epochs):
+
+            print('RPN training epoch %d' % epoch, end='')
+
+            for train_x, label_x in train_dataset:
+
+                print('.', end='')
+
+                # Run gradient step with these features and the ground truth labels
+                self.training_step(train_x, [labelfunc(label) for label in label_x])
+
+            print('')
+
+    def compute_loss(self, cls, bbox, rois, giou_frac=0.5):
 
         '''
         Compute the loss function for a set of classification
@@ -441,6 +515,10 @@ class RPNWrapper:
             ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         rois : list or RoIs, [i, iyy, ixx, ik, {<label or empty>}]
             Output of accumulate_roi(), see training_step for use case.
+        giou_frac : float
+            Fraction of the cost function computed as generalized IoU
+            using https://www.tensorflow.org/addons/api_docs/python/tfa/losses/GIoULoss
+            Setting this to 0. uses only the smooth L1 loss on the bounding box regression.
 
         '''
 
@@ -480,80 +558,6 @@ class RPNWrapper:
             )
 
         return loss
-
-    def training_step(self, train_x, label_decode, update_backbone):
-
-        '''
-        Take a convolved feature map, compute RoI, and
-        update the RPN comparing to the ground truth.
-
-        Arguments:
-
-        features : tensor
-            Minibatch of input images (before running through the backbone)
-        label_decode : list of dicts
-            Decoded labels for this minibatch
-
-        '''
-
-        rois = self.accumulate_roi(label_decode, features.shape[0])
-
-        # Something went wrong with making a list of RoIs, return
-        if rois is None:
-            return
-
-        # Note that we could in theory fine-tune the method by moving the feature
-        # convolution by the backbone into the tf.GradientTape() block, but we are not doing that here.
-        features = self.backbone.extractor(train_x)
-
-        with tf.GradientTape() as tape:
-
-            # Call the RPN
-            cls, bbox = self.rpn(features, training=True)
-
-            # Compute the loss using the classification scores and bounding boxes
-            loss = self.compute_loss(cls, bbox, rois)
-
-        # Apply gradients in the optimizer. Note that TF will throw spurious warnings if gradients
-        # don't exist for the bbox regression if there were no + examples in the minibatch
-        # This isn't actually an error, so list comprehension around it
-        gradients = tape.gradient(loss, self.rpn.trainable_variables)
-        self.optimizer.apply_gradients(
-            (grad, var)
-            for (grad, var) in zip(gradients, self.rpn.trainable_variables)
-            if grad is not None
-        )
-
-    def train_rpn(self, train_dataset, labelfunc, epochs=10):
-        '''
-        Main training loop iterating over a dataset.
-
-        Arguments:
-
-        train_dataset: tensorflow dataset
-            Dataset of input images. Minibatch size and validation
-            split are determined when this is created.
-        labelfunc : function
-            Dictionary for translating the labels in to the dataset into
-            ground truth annotations, usually DataLoaderFull.decode_label
-        epochs : int
-            Number of epochs to run training for.
-
-        '''
-
-        # Training loop, all complexity is in training_step()
-        for epoch in range(epochs):
-
-            print('RPN training epoch %d' % epoch, end='')
-
-            for train_x, label_x in train_dataset:
-
-                print('.', end='')
-
-                # Run gradient step with these features and the ground truth labels
-                self.training_step(train_x, [labelfunc(label) for label in label_x])
-
-            print('')
 
     def propose_regions(self, minibatch, top=-1):
         '''
