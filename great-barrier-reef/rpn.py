@@ -41,7 +41,7 @@ class RPN(tf.keras.Model):
             padding="same",
         )
         self.cls = tf.keras.layers.Conv2D(
-            filters=2 * self.k, kernel_size=1, strides=(1, 1), activation="softmax"
+            filters=2 * self.k, kernel_size=1, strides=(1, 1)
         )
         self.bbox = tf.keras.layers.Conv2D(
             filters=4 * self.k,
@@ -425,7 +425,9 @@ class RPNWrapper:
         '''
 
         # First, compute the categorical cross entropy objectness loss
-        cls_select = [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
+        cls_select = tf.nn.softmax(
+            [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
+        )
         ground_truth = [[1, 0] if 'x' not in roi[4].keys() else [0, 1] for roi in rois]
         loss = self.objectness(ground_truth, cls_select)
         # Now add the bounding box term
@@ -550,12 +552,12 @@ class RPNWrapper:
             scores. If <= 0 then return everything.
         image_coords : bool
             If True, returns objectness and coordinates in image space as numpy arrays.
-            Otherwise, returns output as a tensor in feature space coordinates for 
-            feedforward to the rest of the network. 
+            Otherwise, returns output as a tensor in feature space coordinates for
+            feedforward to the rest of the network.
 
         Returns:
         [image_coords = False]
-            Tensor of shape (batch_size, top, 4) with feature space 
+            Tensor of shape (batch_size, top, 4) with feature space
             coordinates (xx,yy,ww,hh)
 
         [image_coords = True]
@@ -566,7 +568,6 @@ class RPNWrapper:
 
         # Run the feature extractor and the RPN in forward mode, adding an additional
         # image dimension if necessary
-
 
         try:
             features = self.backbone.extractor(minibatch)
@@ -608,7 +609,9 @@ class RPNWrapper:
             top = objectness.shape[1]
 
         def batch_sort(arr, inds, top):
-            return np.take_along_axis(arr.reshape(arr.shape[0], -1), inds, axis=-1)[:, :top]
+            return np.take_along_axis(arr.reshape(arr.shape[0], -1), inds, axis=-1)[
+                :, :top
+            ]
 
         # Sort things by objectness
         objectness = batch_sort(objectness, argsort, top)
@@ -617,8 +620,8 @@ class RPNWrapper:
         ww = batch_sort(ww, argsort, top)
         hh = batch_sort(hh, argsort, top)
 
-        if not image_coords: 
-            output = tf.stack([xx,yy,ww,hh], axis=-1)
+        if not image_coords:
+            output = tf.stack([xx, yy, ww, hh], axis=-1)
             return output
 
         output = {}
