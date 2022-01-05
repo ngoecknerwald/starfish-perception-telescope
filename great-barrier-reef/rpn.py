@@ -428,7 +428,6 @@ class RPNWrapper:
         cls_select = [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
         ground_truth = [[1, 0] if 'x' not in roi[4].keys() else [0, 1] for roi in rois]
         loss = self.objectness(ground_truth, cls_select)
-
         # Now add the bounding box term
         for roi in rois:
 
@@ -458,7 +457,6 @@ class RPNWrapper:
                 [t_x_star, t_y_star, t_w_star, t_h_star],
                 bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
             )
-
         return loss
 
     def training_step(self, features, label_decode):
@@ -537,7 +535,7 @@ class RPNWrapper:
 
             print('')
 
-    def propose_regions(self, minibatch, top=-1):
+    def propose_regions(self, minibatch, top=-1, human_readable=False):
         '''
         Run the RPN in forward mode on a minibatch of images.
         This method is used to train the final classification network
@@ -550,9 +548,16 @@ class RPNWrapper:
         top : int
             Return this number of region proposals with the highest classification
             scores. If <= 0 then return everything.
+        human_readable : bool
+            If True, returns objectness and coordinates in image space as numpy arrays.
+            Otherwise, returns output as a tensor for feedforward to the rest of the network. 
 
         Returns:
+        [human_readable = False]
+            Tensor of shape (batch_size, top, 4) with feature space 
+            coordinates (xx,yy,ww,hh)
 
+        [human_readable = True]
         objectness, x, y, w, h
             Numpy arrays with dimension [image, region proposals]
             sorted by likelihood of being a starfish according to the RPN
@@ -560,6 +565,8 @@ class RPNWrapper:
 
         # Run the feature extractor and the RPN in forward mode, adding an additional
         # image dimension if necessary
+
+
         try:
             features = self.backbone.extractor(minibatch)
         except:
@@ -574,54 +581,61 @@ class RPNWrapper:
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
         # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         # Now cue the infinite magic numpy indexing
-        xxs = self.anchor_xx[np.newaxis, :, :, np.newaxis] + (
+        output = {}
+        xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] + (
             bbox[:, :, :, : self.k].numpy()
             * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
         )
-        yys = self.anchor_yy[np.newaxis, :, :, np.newaxis] + (
+        yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] + (
             bbox[:, :, :, self.k : 2 * self.k].numpy()
             * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
         )
-        wws = self.ww[np.newaxis, np.newaxis, np.newaxis, :] * np.exp(
+        ww = self.ww[np.newaxis, np.newaxis, np.newaxis, :] * np.exp(
             bbox[:, :, :, 2 * self.k : 3 * self.k].numpy()
         )
-        hhs = self.hh[np.newaxis, np.newaxis, np.newaxis, :] * np.exp(
+        hh = self.hh[np.newaxis, np.newaxis, np.newaxis, :] * np.exp(
             bbox[:, :, :, 3 * self.k : 4 * self.k].numpy()
         )
 
-        output_gather = {}
-
-        # Conver to image plane
-        (
-            output_gather['x'],
-            output_gather['y'],
-        ) = self.backbone.feature_coords_to_image_coords(xxs, yys)
-        (
-            output_gather['w'],
-            output_gather['h'],
-        ) = self.backbone.feature_coords_to_image_coords(wws, hhs)
-
         # Reshape to flatten along proposal dimension within an image
-        objectness = objectness.reshape((objectness.shape[0], -1), order='C')
-        for key in output_gather.keys():
-            output_gather[key] = output_gather[key].reshape(
-                (output_gather[key].shape[0], -1), order='C'
-            )
-
-        # Sort things by objectness
+        objectness = objectness.reshape((objectness.shape[0], -1))
         argsort = np.argsort(objectness, axis=-1)
-        objectness = objectness.take(argsort[:, ::-1])
-        for key in output_gather.keys():
-            output_gather[key] = output_gather[key].take(argsort[:, ::-1])
+        argsort = argsort[:, ::-1]
 
         # If no limit requested, just return everything
         if top < 1:
             top = objectness.shape[1]
 
+        def batch_sort(arr, inds, top):
+            return np.take_along_axis(arr.reshape(arr.shape[0], -1), inds, axis=-1)[:, :top]
+
+        # Sort things by objectness
+        objectness = batch_sort(objectness, argsort, top)
+        xx = batch_sort(xx, argsort, top)
+        yy = batch_sort(yy, argsort, top)
+        ww = batch_sort(ww, argsort, top)
+        hh = batch_sort(hh, argsort, top)
+
+        if not human_readable: 
+            output = tf.stack([xx,yy,ww,hh], axis=-1)
+            return output
+
+        output = {}
+
+        # Convert to image plane
+        (
+            output['x'],
+            output['y'],
+        ) = self.backbone.feature_coords_to_image_coords(xx, yy)
+        (
+            output['w'],
+            output['h'],
+        ) = self.backbone.feature_coords_to_image_coords(ww, hh)
+
         return (
-            objectness[:, :top],
-            output_gather['x'][:, :top],
-            output_gather['y'][:, :top],
-            output_gather['w'][:, :top],
-            output_gather['h'][:, :top],
+            objectness,
+            output['x'],
+            output['y'],
+            output['w'],
+            output['h'],
         )
