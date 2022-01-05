@@ -421,6 +421,70 @@ class RPNWrapper:
 
         return rois
 
+    def compute_loss(self, cls, bbox, rois, giou_frac=0.5):
+
+        '''
+        Compute the loss function for a set of classification
+        scores cls and bounding boxes bbox on the set of regions
+        of interest RoIs.
+
+        Arguments:
+
+        cls : tensor, shape (i_image, iyy, ixx, ik)
+            Slice of the output from the RPN corresponding to the
+            classification (object-ness) field. From here on out
+            the k ordering is [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...].
+        bbox : tensor, shape (i_image, iyy, ixx, ik)
+            Slice of the output from the RPN. The k dimension is ordered
+            following a similar convention as cls:
+            [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
+            ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
+        rois : list or RoIs, [i, iyy, ixx, ik, {<label or empty>}]
+            Output of accumulate_roi(), see training_step for use case.
+        giou_frac : float
+            Fraction of the cost function computed as generalized IoU
+            using https://www.tensorflow.org/addons/api_docs/python/tfa/losses/GIoULoss
+            Setting this to 0. uses only the smooth L1 loss on the bounding box regression.
+
+        '''
+
+        # First, compute the categorical cross entropy objectness loss
+        cls_select = [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
+        ground_truth = [[1, 0] if 'x' not in roi[4].keys() else [0, 1] for roi in rois]
+        loss = self.objectness(ground_truth, cls_select)
+
+        # Now add the bounding box term
+        for roi in rois:
+
+            # Short circuit if there is no ground truth
+            if 'x' not in roi[4].keys():
+                continue
+
+            # Refer the corners of the bounding box back to image space
+            # Note that this assumes said mapping is linear.
+            x, y = self.backbone.feature_coords_to_image_coords(
+                self.anchor_xx[roi[1], roi[2]],
+                self.anchor_yy[roi[1], roi[2]],
+            )
+            w, h = self.backbone.feature_coords_to_image_coords(
+                self.ww[roi[3]],
+                self.hh[roi[3]],
+            )
+
+            # Compare anchor to ground truth
+            t_x_star = (x - roi[4]['x']) / (w)
+            t_y_star = (y - roi[4]['y']) / (h)
+            t_w_star = np.log(roi[4]['width'] / (w))
+            t_h_star = np.log(roi[4]['height'] / (h))
+
+            # Huber loss, which AFAIK is the same as smooth L1
+            loss += self.bbox_reg(
+                [t_x_star, t_y_star, t_w_star, t_h_star],
+                bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
+            )
+
+        return loss
+
     def training_step(self, train_x, label_decode, update_backbone=False):
 
         '''
@@ -494,70 +558,6 @@ class RPNWrapper:
                 self.training_step(train_x, [labelfunc(label) for label in label_x])
 
             print('')
-
-    def compute_loss(self, cls, bbox, rois, giou_frac=0.5):
-
-        '''
-        Compute the loss function for a set of classification
-        scores cls and bounding boxes bbox on the set of regions
-        of interest RoIs.
-
-        Arguments:
-
-        cls : tensor, shape (i_image, iyy, ixx, ik)
-            Slice of the output from the RPN corresponding to the
-            classification (object-ness) field. From here on out
-            the k ordering is [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...].
-        bbox : tensor, shape (i_image, iyy, ixx, ik)
-            Slice of the output from the RPN. The k dimension is ordered
-            following a similar convention as cls:
-            [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
-            ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
-        rois : list or RoIs, [i, iyy, ixx, ik, {<label or empty>}]
-            Output of accumulate_roi(), see training_step for use case.
-        giou_frac : float
-            Fraction of the cost function computed as generalized IoU
-            using https://www.tensorflow.org/addons/api_docs/python/tfa/losses/GIoULoss
-            Setting this to 0. uses only the smooth L1 loss on the bounding box regression.
-
-        '''
-
-        # First, compute the categorical cross entropy objectness loss
-        cls_select = [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
-        ground_truth = [[1, 0] if 'x' not in roi[4].keys() else [0, 1] for roi in rois]
-        loss = self.objectness(ground_truth, cls_select)
-
-        # Now add the bounding box term
-        for roi in rois:
-
-            # Short circuit if there is no ground truth
-            if 'x' not in roi[4].keys():
-                continue
-
-            # Refer the corners of the bounding box back to image space
-            # Note that this assumes said mapping is linear.
-            x, y = self.backbone.feature_coords_to_image_coords(
-                self.anchor_xx[roi[1], roi[2]],
-                self.anchor_yy[roi[1], roi[2]],
-            )
-            w, h = self.backbone.feature_coords_to_image_coords(
-                self.ww[roi[3]],
-                self.hh[roi[3]],
-            )
-
-            # Compare anchor to ground truth
-            t_x_star = (x - roi[4]['x']) / (w)
-            t_y_star = (y - roi[4]['y']) / (h)
-            t_w_star = np.log(roi[4]['width'] / (w))
-            t_h_star = np.log(roi[4]['height'] / (h))
-
-            # Huber loss, which AFAIK is the same as smooth L1
-            loss += self.bbox_reg(
-                [t_x_star, t_y_star, t_w_star, t_h_star],
-                bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
-            )
-
-        return loss
 
     def propose_regions(self, minibatch, top=-1):
         '''
