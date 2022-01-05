@@ -535,7 +535,7 @@ class RPNWrapper:
 
             print('')
 
-    def propose_regions(self, minibatch, top=-1, human_readable=False):
+    def propose_regions(self, minibatch, top=-1, image_coords=False):
         '''
         Run the RPN in forward mode on a minibatch of images.
         This method is used to train the final classification network
@@ -548,16 +548,17 @@ class RPNWrapper:
         top : int
             Return this number of region proposals with the highest classification
             scores. If <= 0 then return everything.
-        human_readable : bool
+        image_coords : bool
             If True, returns objectness and coordinates in image space as numpy arrays.
-            Otherwise, returns output as a tensor for feedforward to the rest of the network. 
+            Otherwise, returns output as a tensor in feature space coordinates for 
+            feedforward to the rest of the network. 
 
         Returns:
-        [human_readable = False]
+        [image_coords = False]
             Tensor of shape (batch_size, top, 4) with feature space 
             coordinates (xx,yy,ww,hh)
 
-        [human_readable = True]
+        [image_coords = True]
         objectness, x, y, w, h
             Numpy arrays with dimension [image, region proposals]
             sorted by likelihood of being a starfish according to the RPN
@@ -616,7 +617,7 @@ class RPNWrapper:
         ww = batch_sort(ww, argsort, top)
         hh = batch_sort(hh, argsort, top)
 
-        if not human_readable: 
+        if not image_coords: 
             output = tf.stack([xx,yy,ww,hh], axis=-1)
             return output
 
