@@ -559,7 +559,7 @@ class RPNWrapper:
 
             print('')
 
-    def propose_regions(self, minibatch, top=-1, image_coords=False):
+    def propose_regions(self, minibatch, top=-1, image_coords=False, ignore_bbox=False):
         '''
         Run the RPN in forward mode on a minibatch of images.
         This method is used to train the final classification network
@@ -576,6 +576,9 @@ class RPNWrapper:
             If True, returns objectness and coordinates in image space as numpy arrays.
             Otherwise, returns output as a tensor in feature space coordinates for
             feedforward to the rest of the network.
+        ignore_bbox : bool
+            If True, ignore the bounding box regression and return unmodified proposal
+            regions based on the classification score. Useful for debugging.
 
         Returns:
         [image_coords = False]
@@ -597,6 +600,10 @@ class RPNWrapper:
             features = self.backbone.extractor(minibatch[None, :, :, :])
         cls, bbox = self.rpn(features)
 
+        # Zero out the bounding box regression if requested
+        if ignore_bbox:
+            bbox *= 0.0
+
         # Dimension is image, iyy, ixx, ik were ik is
         # [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...]
         objectness_l0 = cls[:, :, :, : self.k].numpy()
@@ -611,6 +618,9 @@ class RPNWrapper:
 
         # Cut to the one-hot bit
         objectness = objectness[1, :, :]
+
+        # Remove the invalid bounding boxes
+        objectness *= self.valid_mask.reshape(-1)[np.newaxis, :]
 
         # Dimension for bbox is same as cls but ik follows
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
