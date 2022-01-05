@@ -11,7 +11,7 @@ CUTOFF = 100
 
 
 class RPN(tf.keras.Model):
-    def __init__(self, k, kernel_size, anchor_stride, filters):
+    def __init__(self, k, kernel_size, anchor_stride, filters, dropout=0.2):
         """
         Class for the RPN consisting of a convolutional layer and two fully connected layers
         for "objectness" and bounding box regression.
@@ -25,6 +25,8 @@ class RPN(tf.keras.Model):
         filters: int
             Number of filters between the convolutional layer
             and the fully connected layers.
+        dropout : float or None
+            Add dropout to the RPN with this fraction. Pass None to skip.
 
         """
 
@@ -33,6 +35,7 @@ class RPN(tf.keras.Model):
         self.kernel_size = kernel_size
         self.anchor_stride = anchor_stride
         self.filters = filters
+        self.dropout = dropout
         self.conv1 = tf.keras.layers.Conv2D(
             filters=self.filters,
             kernel_size=kernel_size,
@@ -48,12 +51,14 @@ class RPN(tf.keras.Model):
             kernel_size=1,
             strides=(1, 1),
         )
+        if self.dropout is not None:
+            self.dropout1 = (tf.keras.layers.Dropout(0.2),)
 
-    # TODO do we want to split out the cls and bbox steps?
-    # Also TODO figure out if we want use generalized IoU instead of
-    # the L1 loss
-    def call(self, x):
+    # Also TODO figure out if we want use generalized IoU instead of the L1 loss
+    def call(self, x, training=False):
         x = self.conv1(x)
+        if hasattr(self, 'dropout1') and training:
+            x = self.dropout1(x)
         cls = self.cls(x)
         bbox = self.bbox(x)
         return cls, bbox
@@ -64,13 +69,16 @@ class RPNWrapper:
         self,
         backbone,
         kernel_size=3,
-        learning_rate=1e-4,
+        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=1e-2, decay_steps=1000, decay_rate=0.9
+        ),
         anchor_stride=1,
         window_sizes=[2, 4, 6],  # TODO these must be divisible by 2
-        filters=256,
+        filters=512,
         rpn_minibatch=256,
         IoU_neg_threshold=0.1,
         IoU_pos_threshold=0.7,
+        rpn_dropout=0.2,
     ):
         """
         Initialize the RPN model for pretraining.
@@ -79,8 +87,8 @@ class RPNWrapper:
             Knows input image and feature map sizes but is not directly trained here.
         kernel_size : int
             Kernel size for the first convolutional layer in the RPN.
-        learning_rate : float
-            Learning rate for the ADAM optimizer.
+        learning_rate : float or tf.keras.optimizers.schedules.LearningRateSchedule
+            Learning rate for the SGD optimizer.
         anchor_stride : int
             Stride of the anchor in image space in the RPN.
         window_sizes : list of ints
@@ -95,6 +103,8 @@ class RPNWrapper:
             IoU to declare that a region proposal is a negative example.
         IoU_pos_threshold : float
             IoU to declare that a region proposal is a positive example.
+        rpn_dropout : float or None
+            Add dropout to the RPN with this fraction. Pass None to skip.
         """
 
         # Store the image size
@@ -107,6 +117,7 @@ class RPNWrapper:
         self.rpn_minibatch = rpn_minibatch
         self.IoU_neg_threshold = IoU_neg_threshold
         self.IoU_pos_threshold = IoU_pos_threshold
+        self.rpn_dropout = rpn_dropout
 
         # Anchor box sizes
         self.build_anchor_boxes()
@@ -115,10 +126,16 @@ class RPNWrapper:
         self.build_valid_mask()
 
         # Build the model
-        self.rpn = RPN(self.k, self.kernel_size, self.anchor_stride, self.filters)
+        self.rpn = RPN(
+            self.k,
+            self.kernel_size,
+            self.anchor_stride,
+            self.filters,
+            dropout=self.rpn_dropout,
+        )
 
         # Optimizer
-        self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
+        self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
 
         # Classification loss
         self.objectness = tf.keras.losses.CategoricalCrossentropy()
@@ -464,7 +481,7 @@ class RPNWrapper:
 
         return loss
 
-    def training_step(self, features, label_decode):
+    def training_step(self, train_x, label_decode, update_backbone):
 
         '''
         Take a convolved feature map, compute RoI, and
@@ -473,7 +490,7 @@ class RPNWrapper:
         Arguments:
 
         features : tensor
-            Minibatch of input images after running through the backbone.
+            Minibatch of input images (before running through the backbone)
         label_decode : list of dicts
             Decoded labels for this minibatch
 
@@ -486,12 +503,13 @@ class RPNWrapper:
             return
 
         # Note that we could in theory fine-tune the method by moving the feature
-        # convolution by the backbone into the tf.GradientTape() block, but we are not
-        # doing that here.
+        # convolution by the backbone into the tf.GradientTape() block, but we are not doing that here.
+        features = self.backbone.extractor(train_x)
 
         with tf.GradientTape() as tape:
+
             # Call the RPN
-            cls, bbox = self.rpn(features)
+            cls, bbox = self.rpn(features, training=True)
 
             # Compute the loss using the classification scores and bounding boxes
             loss = self.compute_loss(cls, bbox, rois)
@@ -532,11 +550,8 @@ class RPNWrapper:
 
                 print('.', end='')
 
-                # Run training data through the backbone
-                features = self.backbone.extractor(train_x)
-
                 # Run gradient step with these features and the ground truth labels
-                self.training_step(features, [labelfunc(label) for label in label_x])
+                self.training_step(train_x, [labelfunc(label) for label in label_x])
 
             print('')
 
