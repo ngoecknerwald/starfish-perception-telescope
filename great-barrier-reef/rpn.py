@@ -503,7 +503,10 @@ class RPNWrapper:
             w_pred = w * tf.math.exp(bbox[roi[0], roi[1], roi[2], roi[3] + 2 * self.k])
             h_pred = h * tf.math.exp(bbox[roi[0], roi[1], roi[2], roi[3] + 3 * self.k])
 
-            loss += giou_weight * self.bbox_reg_giou(
+            # So, unfortunately, with the exp() in the w_pred and h_pred
+            # lines this can blow up to NaN. Currently kludging
+            # around this with a finite-ness check
+            giou_loss = giou_weight * self.bbox_reg_giou(
                 tf.constant(
                     [
                         [
@@ -523,6 +526,9 @@ class RPNWrapper:
                     ],
                 ],
             )
+
+            if tf.math.is_finite(giou_loss):
+                loss += giou_loss
 
         return loss
 
