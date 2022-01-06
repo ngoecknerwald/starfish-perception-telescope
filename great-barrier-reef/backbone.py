@@ -50,9 +50,6 @@ class Backbone:
             Pixel coordinate in the feature map.
         yy : int or numpy array
             Pixel corrdinate in the feature map.
-
-        TODO this probably isn't actually right, because of edge effect.
-        Come back to this if the boxes are all systematically offset.
         """
 
         return (
@@ -70,9 +67,6 @@ class Backbone:
             Pixel coordinate in the image map.
         y : int or numpy array
             Pixel corrdinate in the image map.
-
-        TODO this probably isn't actually right, because of edge effect.
-        Come back to this if the boxes are all systematically offset.
         """
 
         return (

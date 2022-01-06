@@ -5,7 +5,7 @@ import tensorflow as tf
 import numpy as np
 import warnings
 
-# Number of tries to find a four valid RoIs. Note that if this fails it is still
+# Number of tries to find valid RoIs. Note that if this fails it is still
 # possible to successfully build a minibatch
 CUTOFF = 100
 
