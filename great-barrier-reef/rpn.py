@@ -2,6 +2,7 @@
 # and all variables denoted x, y, h, w denote *image space*
 
 import tensorflow as tf
+import tensorflow_addons as tfa
 import numpy as np
 import warnings
 
@@ -140,8 +141,9 @@ class RPNWrapper:
         # Classification loss
         self.objectness = tf.keras.losses.CategoricalCrossentropy()
 
-        # Regression loss
-        self.bbox_reg = tf.keras.losses.Huber()
+        # Regression loss terms
+        self.bbox_reg_l1 = tf.keras.losses.Huber()
+        self.bbox_reg_giou = tfa.losses.GIoULoss()
 
     def build_anchor_boxes(self):
         """
@@ -421,7 +423,7 @@ class RPNWrapper:
 
         return rois
 
-    def compute_loss(self, cls, bbox, rois, giou_frac=0.5):
+    def compute_loss(self, cls, bbox, rois, giou_rel_weight=2.0):
 
         '''
         Compute the loss function for a set of classification
@@ -441,12 +443,16 @@ class RPNWrapper:
             ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         rois : list or RoIs, [i, iyy, ixx, ik, {<label or empty>}]
             Output of accumulate_roi(), see training_step for use case.
-        giou_frac : float
-            Fraction of the cost function computed as generalized IoU
-            using https://www.tensorflow.org/addons/api_docs/python/tfa/losses/GIoULoss
-            Setting this to 0. uses only the smooth L1 loss on the bounding box regression.
-
+        giou_rel_weight : float
+            Relative weight in the cost function from generalized IoU versus L1 loss
+            using https://www.tensorflow.org/addons/api_docs/python/tfa/losses/GIoULoss.
+            Setting this to 0 uses only the smooth L1 loss on the bounding box regression.
+            Setting this to a large number uses only the generalized IoU loss.
         '''
+
+        # Compute loss weight fractions
+        giou_weight = (giou_rel_weight) / (giou_rel_weight + 1.0)
+        l1_weight = 1.0 / (giou_rel_weight + 1.0)
 
         # First, compute the categorical cross entropy objectness loss
         cls_select = tf.nn.softmax(
@@ -479,13 +485,48 @@ class RPNWrapper:
             t_h_star = np.log(roi[4]['height'] / (h))
 
             # Huber loss, which AFAIK is the same as smooth L1
-            loss += self.bbox_reg(
+            loss += l1_weight * self.bbox_reg_l1(
                 [t_x_star, t_y_star, t_w_star, t_h_star],
                 bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
             )
+
+            # GIoU loss. From the tfa documentation the inputs are encoded
+            # self.bbox_reg_giou(y_true, y_pred)
+            # y_true: true targets tensor. The coordinates of the each bounding
+            #    box in boxes are encoded as [y_min, x_min, y_max, x_max].
+            # y_pred: predictions tensor. The coordinates of the each bounding
+            #    box in boxes are encoded as [y_min, x_min, y_max, x_max].
+
+            # Use the bbox information to locate the regressed box
+            x_pred = x - bbox[roi[0], roi[1], roi[2], roi[3]] * w
+            y_pred = y - bbox[roi[0], roi[1], roi[2], roi[3] + self.k] * h
+            w_pred = w * tf.math.exp(bbox[roi[0], roi[1], roi[2], roi[3] + 2 * self.k])
+            h_pred = h * tf.math.exp(bbox[roi[0], roi[1], roi[2], roi[3] + 3 * self.k])
+
+            loss += giou_weight * self.bbox_reg_giou(
+                tf.constant(
+                    [
+                        [
+                            roi[4]['y'] - roi[4]['height'] / 2.0,
+                            roi[4]['x'] - roi[4]['width'] / 2.0,
+                            roi[4]['y'] + roi[4]['height'] / 2.0,
+                            roi[4]['x'] + roi[4]['width'] / 2.0,
+                        ],
+                    ]
+                ),
+                [
+                    [
+                        y_pred - h_pred / 2.0,
+                        x_pred - w_pred / 2.0,
+                        y_pred + h_pred / 2.0,
+                        x_pred + w_pred / 2.0,
+                    ],
+                ],
+            )
+
         return loss
 
-    def training_step(self, train_x, label_decode, update_backbone=False):
+    def training_step(self, features, label_decode, update_backbone=False):
 
         '''
         Take a convolved feature map, compute RoI, and
@@ -494,15 +535,11 @@ class RPNWrapper:
         Arguments:
 
         features : tensor
-            Minibatch of input images (before running through the backbone)
+            Minibatch of input images after running through the backbone
         label_decode : list of dicts
             Decoded labels for this minibatch
 
         '''
-
-        # Note that we could in theory fine-tune the method by moving the feature
-        # convolution by the backbone into the tf.GradientTape() block, but we are not doing that here.
-        features = self.backbone.extractor(train_x)
 
         rois = self.accumulate_roi(label_decode, features.shape[0])
 
@@ -550,12 +587,19 @@ class RPNWrapper:
 
             print('RPN training epoch %d' % epoch, end='')
 
-            for train_x, label_x in train_dataset:
+            for i, (train_x, label_x) in enumerate(train_dataset):
 
-                print('.', end='')
+                # The dots were getting out of hand
+                if i % 100 == 0:
+                    print('.', end='')
+
+                # Note that we could in theory fine-tune the method by moving the feature
+                # convolution by the backbone into the self.training_step() tf.GradientTape()
+                # block, but we are not doing that here.
+                features = self.backbone.extractor(train_x)
 
                 # Run gradient step with these features and the ground truth labels
-                self.training_step(train_x, [labelfunc(label) for label in label_x])
+                self.training_step(features, [labelfunc(label) for label in label_x])
 
             print('')
 

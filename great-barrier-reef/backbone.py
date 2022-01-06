@@ -276,7 +276,7 @@ class Backbone_ResNet50(Backbone):
     def __init__(self, input_shape=(720, 1280, 3), weights='imagenet', **kwargs):
         """
         Same arguments as Backbone_InceptionResNetV2,
-        but using the base ResNet50 network.
+        but using the base ResNet50 network. Trains and runs somewhat faster.
 
         Arguments:
 
