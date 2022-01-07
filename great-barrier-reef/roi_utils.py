@@ -1,4 +1,4 @@
-# This class exists to collapse RoIs down to final proposals, then pool the features for the final output layer.
+# Class for converting from the RPN outputs to the tail network inputs
 
 
 class IoU_supression:

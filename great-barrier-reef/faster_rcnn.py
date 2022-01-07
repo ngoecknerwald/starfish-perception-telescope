@@ -5,13 +5,6 @@ import rpn, backbone, data_utils
 
 # OK, so here is Neil's TODO list.
 #
-# 0) Let's add a regularization parameter to the bounding box regression parameters and poke around with what this should be.
-#
-# 1) Let's figure out why the regression term isn't able to get all the way up to 1 with very obvious starfish.
-# Perhaps this is related to the loss term from the bbox regression. Is it cleaner to just separate them out?
-#
-# a) Let's figure out a good training schedule for the RPN weights, probably decreasing the gradient step after a few epochs.
-#
 # b) Write up the ROI pooling operation from the region proposals. Basic idea: define an ROI pool size, then
 # take the bbox from the RPN into feature coords, divide up into nxn subregions, take max or average pool in those
 # regions -> Pass to the convolutional layers at the end. See if TF has any builtin support for ROI pooling. Use a
@@ -20,57 +13,6 @@ import rpn, backbone, data_utils
 # c) After ROI pool, connect up the fully connected layers.
 #
 # d) Let's make a method to save the state of the RPN
-
-
-class OutputNetwork(tf.keras.Model):
-    def __init__(
-        self,
-        n_proposals,
-        input_feature_size=7,
-        dense_layers=[4096, 4096],
-        n_classes=2,
-        dropout=0.2,
-    ):
-        '''
-        Class for the Faster R-CNN output layers.
-
-        Arguments:
-
-        n_proposals : int
-            Number of RoIs passed from the RPN to the output network.
-        input_feature_size : int
-            Dimension of the layers after the RoI pooling operation.
-        dense_layers : int or list of int
-            Number of fully connected neurons in the dense layers before
-            the classification and bounding box regression steps.
-        n_classes : int
-            Number of classes (including background). For this application
-            this will always be 2.
-        dropout : float or None
-            Dropout parameter to use between the dense and classification
-            and bounding box regression layers.
-
-
-
-
-        '''
-
-        super().__init__()
-        self.dense1 = tf.keras.layers.Dense(4096, activation='relu')
-        self.dense2 = tf.keras.layers.Dense(4096, activation='relu')
-        self.cls = tf.keras.layers.Dense(
-            n_proposals * n_classes,
-        )
-        self.bbox = tf.keras.layers.Dense(n_proposals * n_classes * 4)
-        self.dropout = dropout
-        self.dropout1 = tf.keras.layers.Dropout(0.2)
-
-    def call(x, training=False):
-        x = dense1(x)
-        x = dense2(x)
-        cls = self.cls(x)
-        bbox = self.bbox(x)
-        return cls, bbox
 
 
 class FasterRCNNWrapper:

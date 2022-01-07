@@ -1,3 +1,5 @@
+# RPN model and wrapper class
+
 # NOTE, from here on all variables denoted xx, yy, hh, ww refer to *feature space*
 # and all variables denoted x, y, h, w denote *image space*
 
