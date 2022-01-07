@@ -13,7 +13,7 @@ class Classifier(tf.keras.Model):
         dropout=0.2,
     ):
         '''
-        Class for the Faster R-CNN output layers.
+        Class for the Faster R-CNN output network.
 
         Arguments:
 
