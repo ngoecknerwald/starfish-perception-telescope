@@ -2,6 +2,7 @@
 # and all variables denoted x, y, h, w denote *image space*
 
 import tensorflow as tf
+import tensorflow_addons as tfa
 import numpy as np
 import warnings
 
@@ -11,7 +12,7 @@ CUTOFF = 100
 
 
 class RPN(tf.keras.Model):
-    def __init__(self, k, kernel_size, anchor_stride, filters):
+    def __init__(self, k, kernel_size, anchor_stride, filters, dropout=0.2):
         """
         Class for the RPN consisting of a convolutional layer and two fully connected layers
         for "objectness" and bounding box regression.
@@ -25,6 +26,8 @@ class RPN(tf.keras.Model):
         filters: int
             Number of filters between the convolutional layer
             and the fully connected layers.
+        dropout : float or None
+            Add dropout to the RPN with this fraction. Pass None to skip.
 
         """
 
@@ -33,6 +36,7 @@ class RPN(tf.keras.Model):
         self.kernel_size = kernel_size
         self.anchor_stride = anchor_stride
         self.filters = filters
+        self.dropout = dropout
         self.conv1 = tf.keras.layers.Conv2D(
             filters=self.filters,
             kernel_size=kernel_size,
@@ -48,9 +52,14 @@ class RPN(tf.keras.Model):
             kernel_size=1,
             strides=(1, 1),
         )
+        if self.dropout is not None:
+            self.dropout1 = tf.keras.layers.Dropout(self.dropout)
 
-    def call(self, x):
+    # Also TODO figure out if we want use generalized IoU instead of the L1 loss
+    def call(self, x, training=False):
         x = self.conv1(x)
+        if hasattr(self, 'dropout1') and training:
+            x = self.dropout1(x)
         cls = self.cls(x)
         bbox = self.bbox(x)
         return cls, bbox
@@ -61,13 +70,16 @@ class RPNWrapper:
         self,
         backbone,
         kernel_size=3,
-        learning_rate=1e-4,
+        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=1e-2, decay_steps=1000, decay_rate=0.9
+        ),
         anchor_stride=1,
-        window_sizes=[2, 4, 6],  # TODO these must be divisible by 2
-        filters=256,
+        window_sizes=[2, 4],  # TODO these must be divisible by 2
+        filters=768,
         rpn_minibatch=256,
         IoU_neg_threshold=0.1,
         IoU_pos_threshold=0.7,
+        rpn_dropout=0.2,
     ):
         """
         Initialize the RPN model for pretraining.
@@ -76,8 +88,8 @@ class RPNWrapper:
             Knows input image and feature map sizes but is not directly trained here.
         kernel_size : int
             Kernel size for the first convolutional layer in the RPN.
-        learning_rate : float
-            Learning rate for the ADAM optimizer.
+        learning_rate : float or tf.keras.optimizers.schedules.LearningRateSchedule
+            Learning rate for the SGD optimizer.
         anchor_stride : int
             Stride of the anchor in image space in the RPN.
         window_sizes : list of ints
@@ -92,6 +104,8 @@ class RPNWrapper:
             IoU to declare that a region proposal is a negative example.
         IoU_pos_threshold : float
             IoU to declare that a region proposal is a positive example.
+        rpn_dropout : float or None
+            Add dropout to the RPN with this fraction. Pass None to skip.
         """
 
         # Store the image size
@@ -104,6 +118,7 @@ class RPNWrapper:
         self.rpn_minibatch = rpn_minibatch
         self.IoU_neg_threshold = IoU_neg_threshold
         self.IoU_pos_threshold = IoU_pos_threshold
+        self.rpn_dropout = rpn_dropout
 
         # Anchor box sizes
         self.build_anchor_boxes()
@@ -112,16 +127,23 @@ class RPNWrapper:
         self.build_valid_mask()
 
         # Build the model
-        self.rpn = RPN(self.k, self.kernel_size, self.anchor_stride, self.filters)
+        self.rpn = RPN(
+            self.k,
+            self.kernel_size,
+            self.anchor_stride,
+            self.filters,
+            dropout=self.rpn_dropout,
+        )
 
         # Optimizer
-        self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
+        self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
 
         # Classification loss
         self.objectness = tf.keras.losses.CategoricalCrossentropy()
 
-        # Regression loss
-        self.bbox_reg = tf.keras.losses.Huber()
+        # Regression loss terms
+        self.bbox_reg_l1 = tf.keras.losses.Huber()
+        self.bbox_reg_giou = tfa.losses.GIoULoss()
 
     def build_anchor_boxes(self):
         """
@@ -151,9 +173,9 @@ class RPNWrapper:
         xx : int
             Pixel coordinate in the feature map.
         yy : int
-            Pixel corrdinate in the feature map.
+            Pixel coordinate in the feature map.
         ww : int
-            Pixel corrdinate in the feature map.
+            Pixel coordinate in the feature map.
         hh : int
             Pixel coordinate in the feature map.
 
@@ -401,7 +423,7 @@ class RPNWrapper:
 
         return rois
 
-    def compute_loss(self, cls, bbox, rois):
+    def compute_loss(self, cls, bbox, rois, giou_rel_weight=1.0):
 
         '''
         Compute the loss function for a set of classification
@@ -421,15 +443,29 @@ class RPNWrapper:
             ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         rois : list or RoIs, [i, iyy, ixx, ik, {<label or empty>}]
             Output of accumulate_roi(), see training_step for use case.
-
+        giou_rel_weight : float
+            Relative weight in the cost function from generalized IoU versus L1 loss
+            using https://www.tensorflow.org/addons/api_docs/python/tfa/losses/GIoULoss.
+            Setting this to 0 uses only the smooth L1 loss on the bounding box regression.
+            Setting this to a large number uses only the generalized IoU loss.
         '''
+
+        # Compute loss weight fractions
+        giou_weight = (giou_rel_weight) / (giou_rel_weight + 1.0)
+        l1_weight = 1.0 / (giou_rel_weight + 1.0)
 
         # First, compute the categorical cross entropy objectness loss
         cls_select = tf.nn.softmax(
             [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
         )
         ground_truth = [[1, 0] if 'x' not in roi[4].keys() else [0, 1] for roi in rois]
+
+        # Stop the training if we hit nan values
+        if np.any(np.logical_not(np.isfinite(cls_slect.numpy()))):
+            raise ValueError('NaN detected in the RPN, aborting training.')
+
         loss = self.objectness(ground_truth, cls_select)
+
         # Now add the bounding box term
         for roi in rois:
 
@@ -455,10 +491,51 @@ class RPNWrapper:
             t_h_star = np.log(roi[4]['height'] / (h))
 
             # Huber loss, which AFAIK is the same as smooth L1
-            loss += self.bbox_reg(
+            loss += l1_weight * self.bbox_reg_l1(
                 [t_x_star, t_y_star, t_w_star, t_h_star],
                 bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
             )
+
+            # GIoU loss. From the tfa documentation the inputs are encoded
+            # self.bbox_reg_giou(y_true, y_pred)
+            # y_true: true targets tensor. The coordinates of the each bounding
+            #    box in boxes are encoded as [y_min, x_min, y_max, x_max].
+            # y_pred: predictions tensor. The coordinates of the each bounding
+            #    box in boxes are encoded as [y_min, x_min, y_max, x_max].
+
+            # Use the bbox information to locate the regressed box
+            x_pred = x - bbox[roi[0], roi[1], roi[2], roi[3]] * w
+            y_pred = y - bbox[roi[0], roi[1], roi[2], roi[3] + self.k] * h
+            w_pred = w * tf.math.exp(bbox[roi[0], roi[1], roi[2], roi[3] + 2 * self.k])
+            h_pred = h * tf.math.exp(bbox[roi[0], roi[1], roi[2], roi[3] + 3 * self.k])
+
+            # So, unfortunately, with the exp() in the w_pred and h_pred
+            # lines this can blow up to NaN. Currently kludging
+            # around this with a finite-ness check
+            giou_loss = giou_weight * self.bbox_reg_giou(
+                tf.constant(
+                    [
+                        [
+                            roi[4]['y'] - roi[4]['height'] / 2.0,
+                            roi[4]['x'] - roi[4]['width'] / 2.0,
+                            roi[4]['y'] + roi[4]['height'] / 2.0,
+                            roi[4]['x'] + roi[4]['width'] / 2.0,
+                        ],
+                    ]
+                ),
+                [
+                    [
+                        y_pred - h_pred / 2.0,
+                        x_pred - w_pred / 2.0,
+                        y_pred + h_pred / 2.0,
+                        x_pred + w_pred / 2.0,
+                    ],
+                ],
+            )
+
+            if tf.math.is_finite(giou_loss):
+                loss += giou_loss
+
         return loss
 
     def training_step(self, features, label_decode):
@@ -470,7 +547,7 @@ class RPNWrapper:
         Arguments:
 
         features : tensor
-            Minibatch of input images after running through the backbone.
+            Minibatch of input images after running through the backbone
         label_decode : list of dicts
             Decoded labels for this minibatch
 
@@ -482,13 +559,10 @@ class RPNWrapper:
         if rois is None:
             return
 
-        # Note that we could in theory fine-tune the method by moving the feature
-        # convolution by the backbone into the tf.GradientTape() block, but we are not
-        # doing that here.
-
         with tf.GradientTape() as tape:
+
             # Call the RPN
-            cls, bbox = self.rpn(features)
+            cls, bbox = self.rpn(features, training=True)
 
             # Compute the loss using the classification scores and bounding boxes
             loss = self.compute_loss(cls, bbox, rois)
@@ -503,7 +577,7 @@ class RPNWrapper:
             if grad is not None
         )
 
-    def train_rpn(self, train_dataset, labelfunc, epochs=10):
+    def train_rpn(self, train_dataset, labelfunc, epochs=5):
         '''
         Main training loop iterating over a dataset.
 
@@ -525,11 +599,15 @@ class RPNWrapper:
 
             print('RPN training epoch %d' % epoch, end='')
 
-            for train_x, label_x in train_dataset:
+            for i, (train_x, label_x) in enumerate(train_dataset):
 
-                print('.', end='')
+                # The dots were getting out of hand
+                if i % 100 == 0:
+                    print('.', end='')
 
-                # Run training data through the backbone
+                # Note that we could in theory fine-tune the method by moving the feature
+                # convolution by the backbone into the self.training_step() tf.GradientTape()
+                # block, but we are not doing that here.
                 features = self.backbone.extractor(train_x)
 
                 # Run gradient step with these features and the ground truth labels
@@ -537,7 +615,7 @@ class RPNWrapper:
 
             print('')
 
-    def propose_regions(self, minibatch, top=-1, image_coords=False):
+    def propose_regions(self, minibatch, top=-1, image_coords=False, ignore_bbox=False):
         '''
         Run the RPN in forward mode on a minibatch of images.
         This method is used to train the final classification network
@@ -554,6 +632,9 @@ class RPNWrapper:
             If True, returns objectness and coordinates in image space as numpy arrays.
             Otherwise, returns output as a tensor in feature space coordinates for
             feedforward to the rest of the network.
+        ignore_bbox : bool
+            If True, ignore the bounding box regression and return unmodified proposal
+            regions based on the classification score. Useful for debugging.
 
         Returns:
         [image_coords = False]
@@ -575,20 +656,38 @@ class RPNWrapper:
             features = self.backbone.extractor(minibatch[None, :, :, :])
         cls, bbox = self.rpn(features)
 
+        # Zero out the bounding box regression if requested
+        if ignore_bbox:
+            bbox *= 0.0
+
         # Dimension is image, iyy, ixx, ik were ik is
         # [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...]
-        objectness = cls[:, :, :, self.k :].numpy()
+        objectness_l0 = cls[:, :, :, : self.k].numpy()
+        objectness_l1 = cls[:, :, :, self.k :].numpy()
+
+        # Need to unpack a bit and hit with softmax
+        objectness_l0 = objectness_l0.reshape((objectness_l0.shape[0], -1))
+        objectness_l1 = objectness_l1.reshape((objectness_l1.shape[0], -1))
+        objectness = tf.nn.softmax(
+            np.stack([objectness_l0, objectness_l1]), axis=0
+        ).numpy()
+
+        # Cut to the one-hot bit
+        objectness = objectness[1, :, :]
+
+        # Remove the invalid bounding boxes
+        objectness *= self.valid_mask.reshape(-1)[np.newaxis, :]
 
         # Dimension for bbox is same as cls but ik follows
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
         # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         # Now cue the infinite magic numpy indexing
         output = {}
-        xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] + (
+        xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] - (
             bbox[:, :, :, : self.k].numpy()
             * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
         )
-        yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] + (
+        yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] - (
             bbox[:, :, :, self.k : 2 * self.k].numpy()
             * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
         )
@@ -600,7 +699,6 @@ class RPNWrapper:
         )
 
         # Reshape to flatten along proposal dimension within an image
-        objectness = objectness.reshape((objectness.shape[0], -1))
         argsort = np.argsort(objectness, axis=-1)
         argsort = argsort[:, ::-1]
 

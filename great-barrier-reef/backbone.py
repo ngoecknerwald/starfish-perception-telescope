@@ -264,3 +264,40 @@ class Backbone_VGG16(Backbone):
                 self.network,
             ]
         )
+
+
+class Backbone_ResNet50(Backbone):
+    def __init__(self, input_shape=(720, 1280, 3), weights='imagenet', **kwargs):
+        """
+        Same arguments as Backbone_InceptionResNetV2,
+        but using the base ResNet50 network. Trains and runs somewhat faster.
+
+        Arguments:
+
+        input_shape: tuple
+            Shape of the input images.
+        weights : str or None
+            Set of weights to use initially.
+        """
+
+        super().__init__()
+
+        self.network = tf.keras.applications.resnet50.ResNet50(
+            include_top=False,
+            weights=weights,
+            input_tensor=None,
+            input_shape=input_shape,
+            pooling=None,
+        )
+
+        self.input_shape = input_shape
+        self.output_shape = self.network.output_shape[1:]
+
+        # Fold the image preprocessing into the model
+        # The different pretrained models expect different inputs, so propagate that into here
+        self.extractor = tf.keras.Sequential(
+            [
+                tf.keras.layers.Lambda(tf.keras.applications.resnet.preprocess_input),
+                self.network,
+            ]
+        )
