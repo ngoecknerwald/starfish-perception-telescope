@@ -75,7 +75,7 @@ class RPNWrapper:
         ),
         anchor_stride=1,
         window_sizes=[2, 4],  # TODO these must be divisible by 2
-        filters=512,
+        filters=768,
         rpn_minibatch=256,
         IoU_neg_threshold=0.1,
         IoU_pos_threshold=0.7,
@@ -423,7 +423,7 @@ class RPNWrapper:
 
         return rois
 
-    def compute_loss(self, cls, bbox, rois, giou_rel_weight=2.0):
+    def compute_loss(self, cls, bbox, rois, giou_rel_weight=1.0):
 
         '''
         Compute the loss function for a set of classification
@@ -459,7 +459,13 @@ class RPNWrapper:
             [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
         )
         ground_truth = [[1, 0] if 'x' not in roi[4].keys() else [0, 1] for roi in rois]
+
+        # Stop the training if we hit nan values
+        if np.any(np.logical_not(np.isfinite(cls_slect.numpy()))):
+            raise ValueError('NaN detected in the RPN, aborting training.')
+
         loss = self.objectness(ground_truth, cls_select)
+
         # Now add the bounding box term
         for roi in rois:
 
@@ -532,7 +538,7 @@ class RPNWrapper:
 
         return loss
 
-    def training_step(self, features, label_decode, update_backbone=False):
+    def training_step(self, features, label_decode):
 
         '''
         Take a convolved feature map, compute RoI, and
@@ -571,7 +577,7 @@ class RPNWrapper:
             if grad is not None
         )
 
-    def train_rpn(self, train_dataset, labelfunc, epochs=10, update_backbone=False):
+    def train_rpn(self, train_dataset, labelfunc, epochs=5):
         '''
         Main training loop iterating over a dataset.
 
