@@ -6,7 +6,7 @@ import rpn, backbone, data_utils
 class FasterRCNNWrapper:
     def __init__(
         self,
-        input_shape,
+        input_shape=(720, 1280, 3),
         datapath='/content',
         backbone_type='InceptionResNet-V2',
         backbone_weights='finetune',
@@ -29,6 +29,11 @@ class FasterRCNNWrapper:
             Options are 'imagenet' to use pretrained weights from ImageNet, 'finetune'
             to run the fine tuning loop with a classification network on thumbnails,
             or a file path to load existing fine-tuned weights.
+        rpn_weights : str
+            Load pre-trained weights for the RPN from this file path.
+        rpn_kwargs : dict
+            Optional keyword arguments passed to the RPN wrapper.
+
         '''
 
         # Record for posterity
@@ -72,7 +77,6 @@ class FasterRCNNWrapper:
         self,
         backbone_type,
         backbone_weights,
-        input_shape=(720, 1280, 3),
     ):
         '''
         Instantiate (and pretrain) the backbone.
@@ -83,15 +87,10 @@ class FasterRCNNWrapper:
             Flavor of backone to use for feature extraction. Should
             refer to  a subclass of Backbone(). Currently supported options
             are InceptionResNet-V2 and VGG16.
-        input_shape : tuple
-            Shape of the input images.
         backbone_weights : str
             Options are 'imagenet' to use pretrained weights from ImageNet, 'finetune'
             to run the fine tuning loop with a classification network on thumbnails,
             or a file path to load fine-tuned weights from a file.
-        data_loader_thumb : data_utils.DataLoaderThumbnail() or None
-            Thumbnail data loader required if backbone_weights == 'pretrain'
-            used to pretrain the backbone.
 
         '''
 
@@ -103,7 +102,7 @@ class FasterRCNNWrapper:
         # Figure out what backbone type we are dealing with here and create it,
         # note that the weights are set to random unless specifically set to imagenet
         init_args = {
-            'input_shape': input_shape,
+            'input_shape': self.input_shape,
             'weights': 'imagenet' if backbone_weights == 'imagenet' else None,
         }
         self.backbone = backbone.instantiate(backbone_type, init_args)
@@ -184,6 +183,6 @@ class FasterRCNNWrapper:
 
     def run_training(self):
         '''
-        Train the whole shebang including
+        Train the whole shebang including the classifier
 
         '''
