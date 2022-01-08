@@ -74,10 +74,43 @@ class ROIPooling(tf.keras.layers.Layer):
         yy = roi[1]
         ww = roi[2]
         hh = roi[3]
-        h_start = tf.cast(yy - hh // 2, 'int32')
-        h_end = tf.cast(yy + hh // 2, 'int32')
-        w_start = tf.cast(xx - ww // 2, 'int32')
-        w_end = tf.cast(xx + ww // 2, 'int32')
+
+        # Crop RoI to image boundaries
+        h_start = tf.math.maximum(tf.cast(yy - hh / 2, 'int32'), 0)
+        h_end = tf.math.minimum(tf.cast(yy + hh / 2, 'int32'), feature_map.shape[0])
+        w_start = tf.math.maximum(tf.cast(xx - ww / 2, 'int32'), 0)
+        w_end = tf.math.minimum(tf.cast(xx + ww / 2, 'int32'), feature_map.shape[1])
+
+        # Enlarge RoI as needed
+        hpad = pooled_height - (h_end - h_start)
+        if hpad > 0:
+            hpad = tf.cast(tf.math.ceil(hpad/2), 'int32')
+            top = feature_map.shape[0] - h_end
+            bottom = h_start
+            if top < hpad:
+                h_end += top
+                h_start -= (2*hpad - top)
+            elif bottom < hpad:
+                h_end += (2*hpad - bottom)
+                h_start -= bottom
+            else:
+                h_start -= hpad
+                h_end += hpad
+
+        wpad = pooled_width - (w_end - w_start)
+        if wpad > 0:
+            wpad = tf.cast(tf.math.ceil(wpad/2), 'int32')
+            right = feature_map.shape[1] - w_end
+            left = w_start
+            if right < wpad:
+                w_end += right 
+                w_start -= (2*wpad - right)
+            elif left < wpad:
+                w_end += (2*wpad - left)
+                w_start -= left 
+            else:
+                w_start -= wpad
+                w_end += wpad
 
         region = feature_map[h_start:h_end, w_start:w_end, :]
 
