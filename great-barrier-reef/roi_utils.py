@@ -83,19 +83,19 @@ class ROIPooling(tf.keras.layers.Layer):
 
         # Enlarge RoI as needed:
         # Assume the image can always be extended in some direction.
-        # Find the necessary padding size, and extend the image either symetrically 
+        # Find the necessary padding size, and extend the image either symetrically
         # in both directions; or, go to the edge on one side and make up
         # the difference on the other side.
         hpad = pooled_height - (h_end - h_start)
         if hpad > 0:
-            hpad = tf.cast(tf.math.ceil(hpad/2), 'int32')
+            hpad = tf.cast(tf.math.ceil(hpad / 2), 'int32')
             top = feature_map.shape[0] - h_end
             bottom = h_start
             if top < hpad:
                 h_end += top
-                h_start -= (2*hpad - top)
+                h_start -= 2 * hpad - top
             elif bottom < hpad:
-                h_end += (2*hpad - bottom)
+                h_end += 2 * hpad - bottom
                 h_start -= bottom
             else:
                 h_start -= hpad
@@ -103,15 +103,15 @@ class ROIPooling(tf.keras.layers.Layer):
 
         wpad = pooled_width - (w_end - w_start)
         if wpad > 0:
-            wpad = tf.cast(tf.math.ceil(wpad/2), 'int32')
+            wpad = tf.cast(tf.math.ceil(wpad / 2), 'int32')
             right = feature_map.shape[1] - w_end
             left = w_start
             if right < wpad:
-                w_end += right 
-                w_start -= (2*wpad - right)
+                w_end += right
+                w_start -= 2 * wpad - right
             elif left < wpad:
-                w_end += (2*wpad - left)
-                w_start -= left 
+                w_end += 2 * wpad - left
+                w_start -= left
             else:
                 w_start -= wpad
                 w_end += wpad

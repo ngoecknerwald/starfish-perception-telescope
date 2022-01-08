@@ -754,7 +754,7 @@ class RPNWrapper:
             Save path for the RPN model.
         """
 
-        tf.keras.models.save_model(self.rpn, path)
+        tf.keras.models.save_model(self.rpn, filename)
 
     def load_rpn_state(self, filename):
         """
@@ -764,6 +764,4 @@ class RPNWrapper:
             Load path for the (tuned) backbone model.
         """
 
-        local_rpn = tf.keras.models.load_model(path)
-        self.rpn.set_weights(local_rpn.get_weights())
-        del local_rpn
+        self.rpn = tf.keras.models.load_model(filename)
