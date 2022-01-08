@@ -6,6 +6,31 @@ import tensorflow_hub as hub
 # and all variables denoted x, y, h, w denote *image space*
 
 
+def instantiate(backbone_type, init_args):
+    '''
+    Create a subclass of Backbone with type backbone_type
+    and constructor arguments **init_args.
+
+    Arguments:
+
+    backbone_type : str
+        One of the defined backbones, 'InceptionResNet-V2', 'VGG16', 'ResNet50'
+    init_args : dict
+        Keywords to pass to the backbone constructor.
+    '''
+
+    backbone_type = backbone_type.lower()
+
+    if backbone_type == 'inceptionresnet-v2':
+        return Backbone_InceptionResNetV2(**init_args)
+    elif backbone_type == 'vgg16':
+        return Backbone_VGG16(**init_args)
+    elif backbone_type == 'resnet50':
+        return Backbone_ResNet50(**init_args)
+    else:
+        raise ValueError('Argument backbone=%s is not recognized.' % backbone_type)
+
+
 class Backbone:
     def __init__(self):
         """
