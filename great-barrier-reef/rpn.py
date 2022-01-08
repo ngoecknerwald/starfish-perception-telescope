@@ -463,7 +463,7 @@ class RPNWrapper:
         ground_truth = [[1, 0] if 'x' not in roi[4].keys() else [0, 1] for roi in rois]
 
         # Stop the training if we hit nan values
-        if np.any(np.logical_not(np.isfinite(cls_slect.numpy()))):
+        if np.any(np.logical_not(np.isfinite(cls_select.numpy()))):
             raise ValueError('NaN detected in the RPN, aborting training.')
 
         loss = self.objectness(ground_truth, cls_select)
