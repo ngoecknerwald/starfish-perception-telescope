@@ -1,4 +1,5 @@
 # Class for converting from the RPN outputs to the tail network inputs
+import tensorflow as tf
 
 
 class IoU_supression:

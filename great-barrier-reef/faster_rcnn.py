@@ -1,6 +1,7 @@
 # High-level class for the full Faster R-CNN network.
 import tensorflow as tf
 import rpn, backbone, data_utils
+import os
 
 
 class FasterRCNNWrapper:
@@ -95,23 +96,22 @@ class FasterRCNNWrapper:
         '''
 
         # Input scrubbing
-        backbone_weights = backbone_weights.lower()
-        if backbone_weights == 'finetune' and data_loader_thumb is None:
+        if backbone_weights.lower() == 'finetune' and data_loader_thumb is None:
             raise ValueError('Thumbnail loader class needed to finetune the backbone.')
 
         # Figure out what backbone type we are dealing with here and create it,
         # note that the weights are set to random unless specifically set to imagenet
         init_args = {
             'input_shape': self.input_shape,
-            'weights': 'imagenet' if backbone_weights == 'imagenet' else None,
+            'weights': 'imagenet' if backbone_weights.lower() == 'imagenet' else None,
         }
         self.backbone = backbone.instantiate(backbone_type, init_args)
 
         # Load or finetune the weights if requested
-        if backbone_weights == 'imagenet':  # Done, no need to do anything else
+        if backbone_weights.lower() == 'imagenet':  # Done, no need to do anything else
             pass
 
-        elif backbone_weights == 'finetune':  # Load weights from a file
+        elif backbone_weights.lower() == 'finetune':  # Load weights from a file
             # Let the backbone for finetuning infer the thumbnail shape on the fly
             init_args = {'input_shape': None, 'weights': 'imagenet'}
             spine = backbone.instantiate(backbone_type, init_args)
