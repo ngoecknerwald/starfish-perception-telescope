@@ -60,7 +60,7 @@ class DataLoaderFull(DataLoader):
         ]
         self.ifile = list(np.argsort(filenames))
 
-    def _load_dataset(self, batch_size=32, validation_split=0.2, shuffle=True):
+    def _load_dataset(self, batch_size=4, validation_split=0.2, shuffle=True):
         """
         Internal method to load the dataset from the input files. Does nothing
         if the dataset has already been loaded with the same parameters.
@@ -159,7 +159,7 @@ class DataLoaderThumbnail(DataLoader):
         super().__init__(**kwargs)
 
     def _load_dataset(
-        self, batch_size=32, validation_split=0.2, shuffle=True, image_size=(128, 128)
+        self, batch_size=64, validation_split=0.2, shuffle=True, image_size=(128, 128)
     ):
         """
         Internal method to create and load the thumbnail dataset from the input files.

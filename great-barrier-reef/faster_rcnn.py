@@ -46,6 +46,8 @@ class FasterRCNNWrapper:
         self.instantiate_RPN(rpn_weights, rpn_kwargs)
 
         # Instantiate the tail network
+        self.instantiate_RoI_pool()
+        self.instantiate_classifier()
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         '''
@@ -117,12 +119,8 @@ class FasterRCNNWrapper:
 
             # Data loading
             assert isinstance(data_loader_thumb, data_utils.DataLoaderThumbnail)
-            train_data = self.data_loader_thumb.get_training(
-                validation_split=0.2, batch_size=64, shuffle=True
-            )
-            valid_data = self.data_loader_thumb.get_validation(
-                validation_split=0.2, batch_size=64, shuffle=True
-            )
+            train_data = self.data_loader_thumb.get_training()
+            valid_data = self.data_loader_thumb.get_validation()
 
             # Train the temporary backbone
             spine.pretrain(train_data, validation_data=valid_data)
@@ -144,10 +142,48 @@ class FasterRCNNWrapper:
 
         Arguments:
 
-        data_loader_full : data_utils.DataLoaderThumbnail()
-            Wrapper for interfacing with the dataset. Required
-            to train the RPN or final network.
+        rpn_weights : str
+            Load pre-trained weights for the RPN from this file path.
+        rpn_kwargs : dict
+            Optional keyword arguments passed to the RPN wrapper.
+
+        '''
+
+        # Create the RPN wrapper
+        self.rpnwrapper = rpn.RPNWrapper(**rpn_kwargs)
+
+        if rpn_weights is not None:  # Load the weights from a file
+
+            assert os.path.exists(rpn_weights)
+            self.rpnwrapper.load_rpn_state(rpn_weights)
+
+        else:  # train the RPN with the default settings
+
+            self.rpnwrapper.train_rpn(
+                self.data_loader_full.get_training(), self.data_loader_full.decode_label
+            )
+
+    def instantiate_RoI_pool(self):
+
+        '''
+        Do whatever constructor-y things need to be done for the NMS and ROI pooling operations.
 
         '''
 
         pass
+
+    def instantiate_classifier(self):
+
+        '''
+        Instantiate the classifier wrapper.
+
+
+        '''
+
+        pass
+
+    def run_training(self):
+        '''
+        Train the whole shebang including
+
+        '''
