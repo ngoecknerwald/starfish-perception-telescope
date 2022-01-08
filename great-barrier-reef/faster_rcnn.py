@@ -96,7 +96,7 @@ class FasterRCNNWrapper:
         '''
 
         # Input scrubbing
-        if backbone_weights.lower() == 'finetune' and data_loader_thumb is None:
+        if backbone_weights.lower() == 'finetune' and self.data_loader_thumb is None:
             raise ValueError('Thumbnail loader class needed to finetune the backbone.')
 
         # Figure out what backbone type we are dealing with here and create it,
@@ -117,7 +117,7 @@ class FasterRCNNWrapper:
             spine = backbone.instantiate(backbone_type, init_args)
 
             # Data loading
-            assert isinstance(data_loader_thumb, data_utils.DataLoaderThumbnail)
+            assert isinstance(self.data_loader_thumb, data_utils.DataLoaderThumbnail)
             train_data = self.data_loader_thumb.get_training()
             valid_data = self.data_loader_thumb.get_validation()
 
@@ -125,7 +125,7 @@ class FasterRCNNWrapper:
             spine.pretrain(train_data, validation_data=valid_data)
 
             # Copy the convolutional weights over
-            backbone.network.set_weights(spine.network.get_weights())
+            self.backbone.network.set_weights(spine.network.get_weights())
 
             # Clean up
             del spine
@@ -149,7 +149,7 @@ class FasterRCNNWrapper:
         '''
 
         # Create the RPN wrapper
-        self.rpnwrapper = rpn.RPNWrapper(**rpn_kwargs)
+        self.rpnwrapper = rpn.RPNWrapper(self.backbone, **rpn_kwargs)
 
         if rpn_weights is not None:  # Load the weights from a file
 
