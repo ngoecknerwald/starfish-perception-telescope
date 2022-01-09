@@ -1,40 +1,6 @@
 # Class for converting from the RPN outputs to the tail network inputs
 import tensorflow as tf
-import rpn
-
-
-class IoU_supression:
-    def __init__(self, IoU_threshold=0.7):
-
-        """
-        Instantiate an IoU supression call. Designed
-        to remove duplicate RoIs from the stack produced
-        by the RPN.
-
-        Arguments:
-
-        IoU_threshold : float
-            Threshold above which two returned regions of interest
-            are deemed the same underlying object.
-
-        """
-
-        self.IoU_threshold = IoU_threshold
-
-    def call(roi_list_sort):
-
-        """
-        Reduce an RoI list by removing any entry with an IoU greater
-        than a higher ranked RoI.
-
-        Arguments
-
-        roi_list_sort : list
-            List of RoIs sorted by likelihood of being a ground truth starfish.
-
-        """
-
-        pass
+import geometry
 
 
 def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
@@ -58,7 +24,7 @@ def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
         Number of regions to return.
         If None, return maximal number of nonoverlapping regions in batch.
 
-    Outputs : 
+    Outputs :
 
     roi : tensor
         Pruned RoI tensor.
@@ -94,7 +60,7 @@ def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
             for j in range(pivot + 1, n_roi):
                 if j in discard:
                     continue
-                IoU = rpn.RPNWrapper.calculate_IoU(
+                IoU = geometry.calculate_IoU(
                     (bxx[pivot], byy[pivot], bww[pivot], bhh[pivot]),
                     (bxx[j], byy[j], bww[j], bhh[j]),
                 )
@@ -118,7 +84,7 @@ def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
         keep = np.setdiff1d(np.arange(n_roi), batch_discard[i], assume_unique=True)
         inds = np.empty(min_size, int)
         if min_size <= keep.size:
-            inds = keep[: min_size]
+            inds = keep[:min_size]
         else:
             inds[: keep.size] = keep
             inds[keep.size :] = discard[: min_size - keep.size]

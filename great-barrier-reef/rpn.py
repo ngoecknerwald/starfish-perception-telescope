@@ -7,6 +7,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 import numpy as np
 import warnings
+import geometry
 
 # Number of tries to find valid RoIs. Note that if this fails it is still
 # possible to successfully build a minibatch
@@ -225,44 +226,6 @@ class RPNWrapper:
                         xx, yy, ww, hh
                     )
 
-    @staticmethod
-    def calculate_IoU(a, b):
-        """
-        Calculate the intersection over union for two boxes
-        or arrays of boxes.
-
-        Arguments:
-
-        a : length-4 array-like, or numpy array of dimension (4,N,M,...)
-            given as (xa, ya, wa, ha)
-        b : length-4 array-like, or numpy array of dimension (4,N,M,...)
-            given as (xb, yb, wb, hb)
-
-        Returns:
-
-        IoU : scalar or array of dimension (N, M,...)
-
-        """
-        xmin_a, xmax_a = a[0] - a[2] / 2, a[0] + a[2] / 2
-        ymin_a, ymax_a = a[1] - a[3] / 2, a[1] + a[3] / 2
-        xmin_b, xmax_b = b[0] - b[2] / 2, b[0] + b[2] / 2
-        ymin_b, ymax_b = b[1] - b[3] / 2, b[1] + b[3] / 2
-
-        intersect = np.maximum(
-            0,
-            1 + (np.minimum(xmax_a, xmax_b) - np.maximum(xmin_a, xmin_b)),
-        ) * np.maximum(
-            0,
-            1 + (np.minimum(ymax_a, ymax_b) - np.maximum(ymin_a, ymin_b)),
-        )
-        overlap = (
-            (xmax_a - xmin_a) * (ymax_a - ymin_a)
-            + (xmax_b - xmin_b) * (ymax_b - ymin_b)
-            - intersect
-        )
-
-        return intersect / overlap
-
     def ground_truth_IoU(self, annotations, xx, yy, hh, ww):
         """
         Compute the ground truth IoU for a set of boxes defined in feature space.
@@ -289,9 +252,10 @@ class RPNWrapper:
         """
 
         # Coordinates and area of the proposed region
-        xx_im, yy_im = self.backbone.feature_coords_to_image_coords(xx, yy)
-        ww_im, hh_im = self.backbone.feature_coords_to_image_coords(ww, hh)
-        proposal_box = (xx_im, yy_im, ww_im, hh_im)
+        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
+        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
+        proposal_box = (x, y, w, h)
+        # @sguns I've been using the convention x = image coordinates, xx = feature coords
 
         # Final output
         IoU = []
@@ -308,7 +272,7 @@ class RPNWrapper:
                 ]
             )
 
-            IoU.append(RPNWrapper.calculate_IoU(proposal_box, annotation_box))
+            IoU.append(geometry.calculate_IoU(proposal_box, annotation_box))
 
         return IoU
 
@@ -777,7 +741,7 @@ class RPNWrapper:
         Load the trained RPN state.
 
         path: str
-            Load path for the (tuned) backbone model.
+            Load path for the RPN model.
         """
 
         self.rpn = tf.keras.models.load_model(filename)

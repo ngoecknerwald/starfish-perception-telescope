@@ -1,6 +1,6 @@
 # High-level class for the full Faster R-CNN network.
 import tensorflow as tf
-import rpn, backbone, data_utils
+import backbone, classification, data_utils, rpn
 import os
 
 
@@ -13,6 +13,7 @@ class FasterRCNNWrapper:
         backbone_weights='finetune',
         rpn_weights=None,
         rpn_kwargs={},
+        classifier_weights=None,
     ):
 
         '''
@@ -30,10 +31,12 @@ class FasterRCNNWrapper:
             Options are 'imagenet' to use pretrained weights from ImageNet, 'finetune'
             to run the fine tuning loop with a classification network on thumbnails,
             or a file path to load existing fine-tuned weights.
-        rpn_weights : str
+        rpn_weights : str or None
             Load pre-trained weights for the RPN from this file path.
         rpn_kwargs : dict
             Optional keyword arguments passed to the RPN wrapper.
+        classifier_weights : str or None
+            Saved weights for the final classification network.
 
         '''
 
@@ -171,15 +174,24 @@ class FasterRCNNWrapper:
 
         pass
 
-    def instantiate_classifier(self):
+    def instantiate_classifier(self, classifier_weights):
 
         '''
         Instantiate the classifier wrapper.
 
+        Arguments:
 
+        classifier_weights : str or None
+            Saved weights for the final classification network.
         '''
 
-        pass
+        # TODO wire the input sizes from the backbone and IoU suppression / RoI pooling into here.
+        self.classwrapper = classification.ClassificationWrapper()
+
+        if classifier_weights is not None:
+
+            assert os.path.exists(classifier_weights)
+            self.rpnwrapper.load_classifier_state(classifier_weights)
 
     def run_training(self):
         '''

@@ -7,7 +7,7 @@ class Classifier(tf.keras.Model):
     def __init__(
         self,
         n_proposals,
-        input_feature_size=7,
+        input_feature_size,
         dense_layers=4096,
         n_classes=2,
         dropout=0.2,
@@ -19,7 +19,7 @@ class Classifier(tf.keras.Model):
 
         n_proposals : int
             Number of RoIs passed from the RPN to the output network.
-        input_feature_size : int
+        input_feature_dim : tuple of int
             Dimension of the layers after the RoI pooling operation.
         dense_layers : int or list of int
             Number of fully connected neurons in the dense layers before
@@ -65,5 +65,54 @@ class Classifier(tf.keras.Model):
 
 
 class ClassificationWrapper:
-    def __init__(self):
-        pass
+    def __init__(
+        self,
+        input_feature_size=(7, 7, 1536),
+        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=1e-2, decay_steps=1000, decay_rate=0.9
+        ),
+        class_minibatch=16,
+        class_dropout=0.2,
+    ):
+        '''
+        Wrapper class for the final classification model.
+
+        Arguments :
+
+        backbone : subclass of backbone.Backbone()
+
+        input_feature_dim
+
+        '''
+
+        # Record for posterity
+        self.input_feature_size = input_feature_size
+        self.learning_rate = learning_rate
+
+        # Network and optimizer
+        self.classifier = Classifier(
+            class_minibatch, input_feature_size, dropout=class_dropout
+        )
+        self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
+
+    def save_classifier_state(self, filename):
+        """
+        Save the trained RPN state.
+
+        Arguments:
+
+        path: str
+            Save path for the classifier.
+        """
+
+        tf.keras.models.save_model(self.classifier, filename)
+
+    def load_classifier_state(self, filename):
+        """
+        Load the trained RPN state.
+
+        path: str
+            Load path for the classifier.
+        """
+
+        self.classifier = tf.keras.models.load_model(filename)
