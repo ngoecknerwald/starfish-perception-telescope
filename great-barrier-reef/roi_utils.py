@@ -37,16 +37,42 @@ class IoU_supression:
         pass
 
 
-def IoU_supression(roi, IoU_threshold=0.7):
+def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
+
+    """
+    Remove duplicate RoIs from the stack produced
+    by the RPN.
+
+    Arguments:
+
+    roi : tensor
+        Regions of interest tensor as output by the RPN.
+        Order is x,y,w,h.
+
+    IoU_threshold : float
+        Threshold above which two returned regions of interest
+        are deemed the same underlying object.
+
+    n_regions : int or None
+        Number of regions to return.
+        If None, return maximal number of nonoverlapping regions in batch.
+
+    Outputs : 
+
+    roi : tensor
+        Pruned RoI tensor.
+
+    """
 
     assert roi.shape[0] == 4
     n_batch = roi.shape[1]
     n_roi = roi.shape[2]
+    if n_regions is not None:
+        assert n_regions < n_roi
 
     xx, yy, ww, hh = roi
 
     # loop over batch dim
-
     batch_discard = []
     for i in range(n_batch):
 
@@ -56,9 +82,6 @@ def IoU_supression(roi, IoU_threshold=0.7):
         # next pivot is the next element that has been kept
 
         bxx, byy, bww, bhh = xx[i], yy[i], ww[i], hh[i]
-
-        prev_pivot = -1
-        pivot = 0
 
         discard = []
 
@@ -79,18 +102,25 @@ def IoU_supression(roi, IoU_threshold=0.7):
 
         batch_discard.append(np.asarray(discard))
 
-    # need to bring all batches back to same size. Find the batch with the most unique RoI
+    # if no fixed size is specified,
+    # find the batch with the most unique RoI
     # and pad the others up to the same size
 
-    min_size = np.max([n_roi - len(bd) for bd in batch_discard])
+    if min_size is None:
+        min_size = np.max([n_roi - len(bd) for bd in batch_discard])
+    else:
+        min_size = n_regions
 
     index_tensor = np.empty((4, n_batch, min_size), int)
 
     for i in range(n_batch):
         keep = np.setdiff1d(np.arange(n_roi), batch_discard[i], assume_unique=True)
         inds = np.empty(min_size, int)
-        inds[: keep.size] = keep
-        inds[keep.size :] = discard[: max(0, min_size - keep.size)]
+        if min_size <= keep.size:
+            inds = keep[:min_size]
+        else:
+            inds[: keep.size] = keep
+            inds[keep.size :] = discard[: min_size - keep.size]
         index_tensor[:, i, :] = np.repeat(inds[np.newaxis, :], 4, axis=0)
 
     return np.take_along_axis(roi, index_tensor, axis=-1)
