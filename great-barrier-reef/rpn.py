@@ -624,9 +624,8 @@ class RPNWrapper:
             coordinates (xx,yy,ww,hh)
 
         [image_coords = True]
-        objectness, x, y, w, h
-            Numpy arrays with dimension [image, region proposals]
-            sorted by likelihood of being a starfish according to the RPN
+            Tensor of shape (batch_size, top, 4) with image space
+            coordinates (x,y,w,h)
         """
 
         # Run the feature extractor and the RPN in forward mode, adding an additional
@@ -636,6 +635,8 @@ class RPNWrapper:
             features = self.backbone.extractor(minibatch)
         except:
             features = self.backbone.extractor(minibatch[None, :, :, :])
+
+        # Run through the RPN
         cls, bbox = self.rpn(features)
 
         # Zero out the bounding box regression if requested
@@ -664,7 +665,6 @@ class RPNWrapper:
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
         # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         # Now cue the infinite magic numpy indexing
-        output = {}
         xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] - (
             bbox[:, :, :, : self.k].numpy()
             * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
@@ -694,7 +694,6 @@ class RPNWrapper:
             ]
 
         # Sort things by objectness
-        objectness = batch_sort(objectness, argsort, top)
         xx = batch_sort(xx, argsort, top)
         yy = batch_sort(yy, argsort, top)
         ww = batch_sort(ww, argsort, top)
@@ -704,25 +703,10 @@ class RPNWrapper:
             output = tf.stack([xx, yy, ww, hh], axis=-1)
             return output
 
-        output = {}
-
         # Convert to image plane
-        (
-            output["x"],
-            output["y"],
-        ) = self.backbone.feature_coords_to_image_coords(xx, yy)
-        (
-            output["w"],
-            output["h"],
-        ) = self.backbone.feature_coords_to_image_coords(ww, hh)
-
-        return (
-            objectness,
-            output["x"],
-            output["y"],
-            output["w"],
-            output["h"],
-        )
+        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
+        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
+        return tf.stack([x, y, w, h], axis=-1)
 
     def save_rpn_state(self, filename):
         """
