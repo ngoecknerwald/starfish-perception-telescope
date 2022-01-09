@@ -47,6 +47,7 @@ def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
 
     roi : tensor
         Regions of interest tensor as output by the RPN.
+        This tensor must be sorted by descending objectness.
         Order is x,y,w,h.
 
     IoU_threshold : float
@@ -106,7 +107,7 @@ def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
     # find the batch with the most unique RoI
     # and pad the others up to the same size
 
-    if min_size is None:
+    if n_regions is None:
         min_size = np.max([n_roi - len(bd) for bd in batch_discard])
     else:
         min_size = n_regions
@@ -117,7 +118,7 @@ def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
         keep = np.setdiff1d(np.arange(n_roi), batch_discard[i], assume_unique=True)
         inds = np.empty(min_size, int)
         if min_size <= keep.size:
-            inds = keep[:min_size]
+            inds = keep[: min_size]
         else:
             inds[: keep.size] = keep
             inds[keep.size :] = discard[: min_size - keep.size]
