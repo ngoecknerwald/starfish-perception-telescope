@@ -1,11 +1,12 @@
 # Class for converting from the RPN outputs to the tail network inputs
 import tensorflow as tf
+import rpn
 
 
 class IoU_supression:
     def __init__(self, IoU_threshold=0.7):
 
-        '''
+        """
         Instantiate an IoU supression call. Designed
         to remove duplicate RoIs from the stack produced
         by the RPN.
@@ -16,13 +17,13 @@ class IoU_supression:
             Threshold above which two returned regions of interest
             are deemed the same underlying object.
 
-        '''
+        """
 
         self.IoU_threshold = IoU_threshold
 
     def call(roi_list_sort):
 
-        '''
+        """
         Reduce an RoI list by removing any entry with an IoU greater
         than a higher ranked RoI.
 
@@ -31,14 +32,74 @@ class IoU_supression:
         roi_list_sort : list
             List of RoIs sorted by likelihood of being a ground truth starfish.
 
-        '''
+        """
 
         pass
 
 
+def IoU_supression(roi, IoU_threshold=0.7):
+
+    assert roi.shape[0] == 4
+    n_batch = roi.shape[1]
+    n_roi = roi.shape[2]
+
+    xx, yy, ww, hh = roi
+
+    # loop over batch dim
+
+    batch_discard = []
+    for i in range(n_batch):
+
+        # double loop over roi in batch
+        # fix a pivot starting at 0
+        # for each pivot, discard all elements with IoU > threshold
+        # next pivot is the next element that has been kept
+
+        bxx, byy, bww, bhh = xx[i], yy[i], ww[i], hh[i]
+
+        prev_pivot = -1
+        pivot = 0
+
+        discard = []
+
+        for pivot in range(n_roi - 1):
+
+            if pivot in discard:
+                continue
+
+            for j in range(pivot + 1, n_roi):
+                if j in discard:
+                    continue
+                IoU = rpn.RPNWrapper.calculate_IoU(
+                    (bxx[pivot], byy[pivot], bww[pivot], bhh[pivot]),
+                    (bxx[j], byy[j], bww[j], bhh[j]),
+                )
+                if IoU > IoU_threshold:
+                    discard.append(j)
+
+        batch_discard.append(np.asarray(discard))
+
+    # need to bring all batches back to same size. Find the batch with the most unique RoI
+    # and pad the others up to the same size
+
+    min_size = np.max([n_roi - len(bd) for bd in batch_discard])
+
+    index_tensor = np.empty((4, n_batch, min_size), int)
+
+    for i in range(n_batch):
+        keep = np.setdiff1d(np.arange(n_roi), batch_discard[i], assume_unique=True)
+        inds = np.empty(min_size, int)
+        inds[: keep.size] = keep
+        inds[keep.size :] = discard[: max(0, min_size - keep.size)]
+        index_tensor[:, i, :] = np.repeat(inds[np.newaxis, :], 4, axis=0)
+
+    return np.take_along_axis(roi, index_tensor, axis=-1)
+
+
 class ROIPooling(tf.keras.layers.Layer):
 
-    # mostly taken from https://medium.com/xplore-ai/implementing-attention-in-tensorflow-keras-using-roi-pooling-992508b6592b
+    # based on https://medium.com/xplore-ai/implementing-attention-in-tensorflow-keras-using-roi-pooling-992508b6592b
+    # added cropping and minimum size padding
 
     def __init__(self, pooled_height, pooled_width, **kwargs):
         super().__init__(**kwargs)
@@ -76,10 +137,10 @@ class ROIPooling(tf.keras.layers.Layer):
         hh = roi[3]
 
         # Crop RoI to image boundaries
-        h_start = tf.math.maximum(tf.cast(yy - hh / 2, 'int32'), 0)
-        h_end = tf.math.minimum(tf.cast(yy + hh / 2, 'int32'), feature_map.shape[0])
-        w_start = tf.math.maximum(tf.cast(xx - ww / 2, 'int32'), 0)
-        w_end = tf.math.minimum(tf.cast(xx + ww / 2, 'int32'), feature_map.shape[1])
+        h_start = tf.math.maximum(tf.cast(yy - hh / 2, "int32"), 0)
+        h_end = tf.math.minimum(tf.cast(yy + hh / 2, "int32"), feature_map.shape[0])
+        w_start = tf.math.maximum(tf.cast(xx - ww / 2, "int32"), 0)
+        w_end = tf.math.minimum(tf.cast(xx + ww / 2, "int32"), feature_map.shape[1])
 
         # Enlarge RoI as needed:
         # Assume the image can always be extended in some direction.
@@ -88,7 +149,7 @@ class ROIPooling(tf.keras.layers.Layer):
         # the difference on the other side.
         hpad = pooled_height - (h_end - h_start)
         if hpad > 0:
-            hpad = tf.cast(tf.math.ceil(hpad / 2), 'int32')
+            hpad = tf.cast(tf.math.ceil(hpad / 2), "int32")
             top = feature_map.shape[0] - h_end
             bottom = h_start
             if top < hpad:
@@ -103,7 +164,7 @@ class ROIPooling(tf.keras.layers.Layer):
 
         wpad = pooled_width - (w_end - w_start)
         if wpad > 0:
-            wpad = tf.cast(tf.math.ceil(wpad / 2), 'int32')
+            wpad = tf.cast(tf.math.ceil(wpad / 2), "int32")
             right = feature_map.shape[1] - w_end
             left = w_start
             if right < wpad:
@@ -121,8 +182,8 @@ class ROIPooling(tf.keras.layers.Layer):
         # Divide the region into non overlapping areas
         region_height = h_end - h_start
         region_width = w_end - w_start
-        h_step = tf.cast(region_height / pooled_height, 'int32')
-        w_step = tf.cast(region_width / pooled_width, 'int32')
+        h_step = tf.cast(region_height / pooled_height, "int32")
+        w_step = tf.cast(region_width / pooled_width, "int32")
 
         areas = [
             [

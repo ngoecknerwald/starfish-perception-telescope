@@ -60,7 +60,7 @@ class RPN(tf.keras.Model):
     # Also TODO figure out if we want use generalized IoU instead of the L1 loss
     def call(self, x, training=False):
         x = self.conv1(x)
-        if hasattr(self, 'dropout1') and training:
+        if hasattr(self, "dropout1") and training:
             x = self.dropout1(x)
         cls = self.cls(x)
         bbox = self.bbox(x)
@@ -225,6 +225,44 @@ class RPNWrapper:
                         xx, yy, ww, hh
                     )
 
+    @staticmethod
+    def calculate_IoU(a, b):
+        """
+        Calculate the intersection over union for two boxes
+        or arrays of boxes.
+
+        Arguments:
+
+        a : length-4 array-like, or numpy array of dimension (4,N,M,...)
+            given as (xa, ya, wa, ha)
+        b : length-4 array-like, or numpy array of dimension (4,N,M,...)
+            given as (xb, yb, wb, hb)
+
+        Returns:
+
+        IoU : scalar or array of dimension (N, M,...)
+
+        """
+        xmin_a, xmax_a = a[0] - a[2] / 2, a[0] + a[2] / 2
+        ymin_a, ymin_b = a[1] - a[3] / 2, a[1] + a[3] / 2
+        xmin_b, xmbx_b = b[0] - b[2] / 2, b[0] + b[2] / 2
+        ymin_b, ymin_b = b[1] - b[3] / 2, b[1] + b[3] / 2
+
+        intersect = np.maximum(
+            0,
+            1 + (np.minimum(xmax_a, xmax_b) - np.maximum(xmin_a, xmin_b)),
+        ) * np.maximum(
+            0,
+            1 + (np.minimum(ymax_a, ymax_b) - np.maximum(ymin_a, ymin_b)),
+        )
+        overlap = (
+            (xmax_a - xmin_a) * (ymax_a - ymin_a)
+            + (xmax_b - xmin_b) * (ymax_b - ymin_b)
+            - intersect
+        )
+
+        return intersect / overlap
+
     def ground_truth_IoU(self, annotations, xx, yy, hh, ww):
         """
         Compute the ground truth IoU for a set of boxes defined in feature space.
@@ -251,18 +289,9 @@ class RPNWrapper:
         """
 
         # Coordinates and area of the proposed region
-        xmin, ymin = self.backbone.feature_coords_to_image_coords(
-            xx - ww / 2, yy - hh / 2
-        )
-        xmax, ymax = self.backbone.feature_coords_to_image_coords(
-            xx + ww / 2, yy + hh / 2
-        )
-
-        # Cast to numpy array to vectorize IoU over many proposal regions
-        xmin = xmin * np.ones_like(xx)
-        ymin = ymin * np.ones_like(yy)
-        xmax = xmax * np.ones_like(xx)
-        xmax = xmax * np.ones_like(yy)
+        xx_im, yy_im = self.backbone.feature_coords_to_image_coords(xx, yy)
+        ww_im, hh_im = self.backbone.feature_coords_to_image_coords(ww, hh)
+        proposal_box = (xx_im, yy_im, ww_im, hh_im)
 
         # Final output
         IoU = []
@@ -270,29 +299,16 @@ class RPNWrapper:
         # Cycle through the annotations and compute IoU
         for annotation in annotations:
 
-            intersect = np.maximum(
-                0,
-                1
-                + (
-                    np.minimum(xmax, annotation["x"] + annotation["width"] / 2)
-                    - np.maximum(xmin, annotation["x"] - annotation["width"] / 2)
-                ),
-            ) * np.maximum(
-                0,
-                1
-                + (
-                    np.minimum(ymax, annotation["y"] + annotation["height"] / 2)
-                    - np.maximum(ymin, annotation["y"] - annotation["height"] / 2)
-                ),
+            annotation_box = np.asarray(
+                [
+                    annotation["x"],
+                    annotation["y"],
+                    annotation["width"],
+                    annotation["height"],
+                ]
             )
-            IoU.append(
-                (intersect)
-                / (
-                    (xmax - xmin) * (ymax - ymin)
-                    + annotation["width"] * annotation["height"]
-                    - intersect
-                )
-            )
+
+            IoU.append(RPNWRapper.calculate_IoU(proposal_box, annotation_box))
 
         return IoU
 
@@ -427,7 +443,7 @@ class RPNWrapper:
 
     def compute_loss(self, cls, bbox, rois, giou_rel_weight=1.0):
 
-        '''
+        """
         Compute the loss function for a set of classification
         scores cls and bounding boxes bbox on the set of regions
         of interest RoIs.
@@ -450,7 +466,7 @@ class RPNWrapper:
             using https://www.tensorflow.org/addons/api_docs/python/tfa/losses/GIoULoss.
             Setting this to 0 uses only the smooth L1 loss on the bounding box regression.
             Setting this to a large number uses only the generalized IoU loss.
-        '''
+        """
 
         # Compute loss weight fractions
         giou_weight = (giou_rel_weight) / (giou_rel_weight + 1.0)
@@ -460,11 +476,11 @@ class RPNWrapper:
         cls_select = tf.nn.softmax(
             [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
         )
-        ground_truth = [[1, 0] if 'x' not in roi[4].keys() else [0, 1] for roi in rois]
+        ground_truth = [[1, 0] if "x" not in roi[4].keys() else [0, 1] for roi in rois]
 
         # Stop the training if we hit nan values
         if np.any(np.logical_not(np.isfinite(cls_select.numpy()))):
-            raise ValueError('NaN detected in the RPN, aborting training.')
+            raise ValueError("NaN detected in the RPN, aborting training.")
 
         loss = self.objectness(ground_truth, cls_select)
 
@@ -472,7 +488,7 @@ class RPNWrapper:
         for roi in rois:
 
             # Short circuit if there is no ground truth
-            if 'x' not in roi[4].keys():
+            if "x" not in roi[4].keys():
                 continue
 
             # Refer the corners of the bounding box back to image space
@@ -487,10 +503,10 @@ class RPNWrapper:
             )
 
             # Compare anchor to ground truth
-            t_x_star = (x - roi[4]['x']) / (w)
-            t_y_star = (y - roi[4]['y']) / (h)
-            t_w_star = np.log(roi[4]['width'] / (w))
-            t_h_star = np.log(roi[4]['height'] / (h))
+            t_x_star = (x - roi[4]["x"]) / (w)
+            t_y_star = (y - roi[4]["y"]) / (h)
+            t_w_star = np.log(roi[4]["width"] / (w))
+            t_h_star = np.log(roi[4]["height"] / (h))
 
             # Huber loss, which AFAIK is the same as smooth L1
             loss += l1_weight * self.bbox_reg_l1(
@@ -518,10 +534,10 @@ class RPNWrapper:
                 tf.constant(
                     [
                         [
-                            roi[4]['y'] - roi[4]['height'] / 2.0,
-                            roi[4]['x'] - roi[4]['width'] / 2.0,
-                            roi[4]['y'] + roi[4]['height'] / 2.0,
-                            roi[4]['x'] + roi[4]['width'] / 2.0,
+                            roi[4]["y"] - roi[4]["height"] / 2.0,
+                            roi[4]["x"] - roi[4]["width"] / 2.0,
+                            roi[4]["y"] + roi[4]["height"] / 2.0,
+                            roi[4]["x"] + roi[4]["width"] / 2.0,
                         ],
                     ]
                 ),
@@ -542,7 +558,7 @@ class RPNWrapper:
 
     def training_step(self, features, label_decode):
 
-        '''
+        """
         Take a convolved feature map, compute RoI, and
         update the RPN comparing to the ground truth.
 
@@ -553,7 +569,7 @@ class RPNWrapper:
         label_decode : list of dicts
             Decoded labels for this minibatch
 
-        '''
+        """
 
         rois = self.accumulate_roi(label_decode, features.shape[0])
 
@@ -580,7 +596,7 @@ class RPNWrapper:
         )
 
     def train_rpn(self, train_dataset, labelfunc, epochs=5):
-        '''
+        """
         Main training loop iterating over a dataset.
 
         Arguments:
@@ -594,18 +610,18 @@ class RPNWrapper:
         epochs : int
             Number of epochs to run training for.
 
-        '''
+        """
 
         # Training loop, all complexity is in training_step()
         for epoch in range(epochs):
 
-            print('RPN training epoch %d' % epoch, end='')
+            print("RPN training epoch %d" % epoch, end="")
 
             for i, (train_x, label_x) in enumerate(train_dataset):
 
                 # The dots were getting out of hand
                 if i % 100 == 0:
-                    print('.', end='')
+                    print(".", end="")
 
                 # Note that we could in theory fine-tune the method by moving the feature
                 # convolution by the backbone into the self.training_step() tf.GradientTape()
@@ -615,10 +631,10 @@ class RPNWrapper:
                 # Run gradient step with these features and the ground truth labels
                 self.training_step(features, [labelfunc(label) for label in label_x])
 
-            print('')
+            print("")
 
     def propose_regions(self, minibatch, top=-1, image_coords=False, ignore_bbox=False):
-        '''
+        """
         Run the RPN in forward mode on a minibatch of images.
         This method is used to train the final classification network
         and to evaluate at test time.
@@ -647,7 +663,7 @@ class RPNWrapper:
         objectness, x, y, w, h
             Numpy arrays with dimension [image, region proposals]
             sorted by likelihood of being a starfish according to the RPN
-        '''
+        """
 
         # Run the feature extractor and the RPN in forward mode, adding an additional
         # image dimension if necessary
@@ -728,20 +744,20 @@ class RPNWrapper:
 
         # Convert to image plane
         (
-            output['x'],
-            output['y'],
+            output["x"],
+            output["y"],
         ) = self.backbone.feature_coords_to_image_coords(xx, yy)
         (
-            output['w'],
-            output['h'],
+            output["w"],
+            output["h"],
         ) = self.backbone.feature_coords_to_image_coords(ww, hh)
 
         return (
             objectness,
-            output['x'],
-            output['y'],
-            output['w'],
-            output['h'],
+            output["x"],
+            output["y"],
+            output["w"],
+            output["h"],
         )
 
     def save_rpn_state(self, filename):
