@@ -83,7 +83,7 @@ class DataLoaderFull(DataLoader):
         # Load the dataset
         self.training = image_dataset_from_directory(
             os.path.join(self.input_file, "train_images"),
-            labels=self.ifile,
+            labels=[i for i in self.ifile],
             batch_size=batch_size,
             seed=self.seed,
             validation_split=self.validation_split,
@@ -94,7 +94,7 @@ class DataLoaderFull(DataLoader):
 
         self.validation = image_dataset_from_directory(
             os.path.join(self.input_file, "train_images"),
-            labels=self.ifile,
+            labels=[i for i in self.ifile],
             batch_size=batch_size,
             seed=self.seed,
             validation_split=self.validation_split,
