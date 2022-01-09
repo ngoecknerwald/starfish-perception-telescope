@@ -46,8 +46,8 @@ class Classifier(tf.keras.Model):
         self.dropout = dropout
 
         # Instantiate network components
-        self.dense1 = tf.keras.layers.Dense(dense_layers[0], activation='relu')
-        self.dense2 = tf.keras.layers.Dense(dense_layers[1], activation='relu')
+        self.dense1 = tf.keras.layers.Dense(self.dense_layers[0], activation='relu')
+        self.dense2 = tf.keras.layers.Dense(self.dense_layers[1], activation='relu')
         self.cls = tf.keras.layers.Dense(
             n_proposals * n_classes,
         )

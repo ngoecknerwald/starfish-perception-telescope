@@ -56,7 +56,7 @@ class FasterRCNNWrapper:
 
         # Instantiate the tail network
         self.instantiate_RoI_pool()
-        self.instantiate_classifier()
+        self.instantiate_classifier(classifier_weights)
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         '''
