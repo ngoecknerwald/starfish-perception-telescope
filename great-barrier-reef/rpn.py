@@ -244,9 +244,9 @@ class RPNWrapper:
 
         """
         xmin_a, xmax_a = a[0] - a[2] / 2, a[0] + a[2] / 2
-        ymin_a, ymin_b = a[1] - a[3] / 2, a[1] + a[3] / 2
-        xmin_b, xmbx_b = b[0] - b[2] / 2, b[0] + b[2] / 2
-        ymin_b, ymin_b = b[1] - b[3] / 2, b[1] + b[3] / 2
+        ymin_a, ymax_a = a[1] - a[3] / 2, a[1] + a[3] / 2
+        xmin_b, xmax_b = b[0] - b[2] / 2, b[0] + b[2] / 2
+        ymin_b, ymax_b = b[1] - b[3] / 2, b[1] + b[3] / 2
 
         intersect = np.maximum(
             0,
@@ -308,7 +308,7 @@ class RPNWrapper:
                 ]
             )
 
-            IoU.append(RPNWRapper.calculate_IoU(proposal_box, annotation_box))
+            IoU.append(RPNWrapper.calculate_IoU(proposal_box, annotation_box))
 
         return IoU
 
