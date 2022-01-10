@@ -1,6 +1,7 @@
 # Class for converting from the RPN outputs to the tail network inputs
 import tensorflow as tf
 import geometry
+import numpy as np
 
 
 def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
@@ -14,83 +15,76 @@ def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
     roi : tensor
         Regions of interest tensor as output by the RPN.
         This tensor must be sorted by descending objectness.
-        Order is x,y,w,h.
+        Shape is [image number, RoI number, (x,y,w,h)].
 
     IoU_threshold : float
         Threshold above which two returned regions of interest
         are deemed the same underlying object.
 
-    n_regions : int or None
-        Number of regions to return.
-        If None, return maximal number of nonoverlapping regions in batch.
+    n_regions : int
+        Number of regions to return. Note that roi.shape[1] should
+        be >> n_regions to avoid an underflow once regions are pruned.
 
     Outputs :
 
-    roi : tensor
-        Pruned RoI tensor.
+    roi_pruned : tensor
+        Pruned RoI tensor. Shape is the same as the input roi
+        tensor, [image number, RoI number, (x,y,w,h)].
 
     """
 
-    assert roi.shape[0] == 4
-    n_batch = roi.shape[1]
-    n_roi = roi.shape[2]
-    if n_regions is not None:
-        assert n_regions < n_roi
+    # Sanity checking
+    assert roi.shape[2] == 4  # x,y,w,h
 
-    xx, yy, ww, hh = roi
+    # Indices to output
+    index_tensor = np.empty((roi.shape[0], n_regions, 4), int)
 
     # loop over batch dim
-    batch_discard = []
-    for i in range(n_batch):
+    for i in range(roi.shape[0]):
 
         # double loop over roi in batch
         # fix a pivot starting at 0
         # for each pivot, discard all elements with IoU > threshold
         # next pivot is the next element that has been kept
 
-        bxx, byy, bww, bhh = xx[i], yy[i], ww[i], hh[i]
-
         discard = []
 
-        for pivot in range(n_roi - 1):
+        for pivot in range(roi.shape[1] - 1):
 
             if pivot in discard:
                 continue
 
-            for j in range(pivot + 1, n_roi):
-                if j in discard:
-                    continue
-                IoU = geometry.calculate_IoU(
-                    (bxx[pivot], byy[pivot], bww[pivot], bhh[pivot]),
-                    (bxx[j], byy[j], bww[j], bhh[j]),
-                )
-                if IoU > IoU_threshold:
+            for j in range(pivot + 1, roi.shape[1]):
+
+                # Logic should short circuit here and not evaluate IoU
+                # if it's already in discard
+                if (
+                    j not in discard
+                    and geometry.calculate_IoU(
+                        (roi[i, pivot, :]),
+                        (roi[i, j, :]),
+                    )
+                    > IoU_threshold
+                ):
                     discard.append(j)
 
-        batch_discard.append(np.asarray(discard))
+        # Pick out what's remaining
+        keep = np.setdiff1d(np.arange(roi.shape[1]), discard, assume_unique=True)
 
-    # if no fixed size is specified,
-    # find the batch with the most unique RoI
-    # and pad the others up to the same size
+        # Insufficient regions
+        if keep.shape[0] < n_regions:
+            arr = np.array(
+                [
+                    roi.shape[1] - 1,
+                ]
+                * (n_regions - keep.shape[0])
+            )
+            keep = np.concatenate((keep, arr))
 
-    if n_regions is None:
-        min_size = np.max([n_roi - len(bd) for bd in batch_discard])
-    else:
-        min_size = n_regions
+        # Fill out the index tensor
+        index_tensor[i, :, :] = keep[:n_regions, np.newaxis]
 
-    index_tensor = np.empty((4, n_batch, min_size), int)
-
-    for i in range(n_batch):
-        keep = np.setdiff1d(np.arange(n_roi), batch_discard[i], assume_unique=True)
-        inds = np.empty(min_size, int)
-        if min_size <= keep.size:
-            inds = keep[:min_size]
-        else:
-            inds[: keep.size] = keep
-            inds[keep.size :] = discard[: min_size - keep.size]
-        index_tensor[:, i, :] = np.repeat(inds[np.newaxis, :], 4, axis=0)
-
-    return np.take_along_axis(roi, index_tensor, axis=-1)
+    return np.take_along_axis(roi.numpy(), index_tensor, axis=1)
 
 
 class ROIPooling(tf.keras.layers.Layer):
