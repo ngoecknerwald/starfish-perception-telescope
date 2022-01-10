@@ -3,6 +3,27 @@
 
 import numpy as np
 
+def center_to_boundary_coordinates(x,y,w,h):
+    """
+    Convert center x, y, width, height to 
+    boundary xmin, xmax, ymin, ymax.
+    """
+    xmin = x - w / 2
+    xmax = x + w / 2
+    ymin = y - h / 2
+    ymax = y + h / 2
+    return (xmin,xmax,ymin,ymax)
+
+def boundary_to_center_coordinates(xmin,xmax,ymin,ymax):
+    """
+    Convert boundary xmin, xmax, ymin, ymax
+    to center x,y,width,height.
+    """
+    x = (xmin + xmax) / 2
+    y = (ymin + ymax) / 2
+    w = (xmax - xmin)
+    h = (ymax - ymin)
+    return (x,y,w,h)
 
 def calculate_IoU(a, b):
     """
@@ -21,10 +42,8 @@ def calculate_IoU(a, b):
     IoU : scalar or array of dimension (N, M,...)
 
     """
-    xmin_a, xmax_a = a[0] - a[2] / 2, a[0] + a[2] / 2
-    ymin_a, ymax_a = a[1] - a[3] / 2, a[1] + a[3] / 2
-    xmin_b, xmax_b = b[0] - b[2] / 2, b[0] + b[2] / 2
-    ymin_b, ymax_b = b[1] - b[3] / 2, b[1] + b[3] / 2
+    xmin_a, xmax_a, ymin_a, ymax_a = boundary_to_center_coordinates(*a)
+    xmin_b, xmax_b, ymin_b, ymax_b = boundary_to_center_coordinates(*b)
 
     intersect = np.maximum(
         0,

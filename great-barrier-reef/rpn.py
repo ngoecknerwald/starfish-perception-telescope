@@ -699,14 +699,16 @@ class RPNWrapper:
         ww = batch_sort(ww, argsort, top)
         hh = batch_sort(hh, argsort, top)
 
+        xxmin,xxmax,yymin,yymax = geometry.center_to_boundary_coordinates(xx,yy,ww,hh)
+
         if not image_coords:
-            output = tf.stack([xx, yy, ww, hh], axis=-1)
+            output = tf.stack([xxmin, xxmax, yymin, yymax], axis=-1)
             return output
 
         # Convert to image plane
-        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
-        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
-        return tf.stack([x, y, w, h], axis=-1)
+        xmin, ymin = self.backbone.feature_coords_to_image_coords(xxmin, yymin)
+        xmax, ymax = self.backbone.feature_coords_to_image_coords(xxmax, yymax)
+        return tf.stack([xmin, xmax, ymin, ymax], axis=-1)
 
     def save_rpn_state(self, filename):
         """
