@@ -8,7 +8,8 @@ def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
 
     """
     Remove duplicate RoIs from the stack produced
-    by the RPN.
+    by the RPN. Note this is agnostic to feature
+    versus image coordinates.
 
     Arguments:
 
@@ -85,6 +86,54 @@ def IoU_supression(roi, IoU_threshold=0.7, n_regions=10):
         index_tensor[i, :, :] = keep[:n_regions, np.newaxis]
 
     return np.take_along_axis(roi.numpy(), index_tensor, axis=1)
+
+
+def clip_RoI(roi, feature_size, pool_size):
+
+    '''
+    Take the IoU post-IoU supression and clip to the image boundaries.
+    Agnostic to feature dimensions or image dimensions.
+
+    Arguments:
+
+    roi : np.ndarray
+        Float tensor of the same size as returned by
+        IoU_supression. Shape is [image number, RoI number, (x,y,w,h)].
+    feature_size : tuple of int
+        Shape of the feature map or the input image.
+        Assumed to be the same convention (image vs feature dim) as roi_pruned.
+    pool_size : size of the pooled images. Imposes a floor on w and h.
+        Assumed to be the same convention (image vs feature dim) as roi_pruned.
+
+    Returns:
+
+    roi_clipped : np.ndarray
+        RoIs clipped to the image bondaries and the minimum sizes.
+    '''
+
+    # sanity checking that the pool size isn't > the feature size
+    assert feature_size[0] > pool_size[0] and feature_size[1] > pool_size[1]
+
+    roi_clipped = np.zeros(roi_pruned.shape, dtype=int)
+
+    # Now impose the size minima
+    roi_clipped[:, :, 2] = np.minimum(roi[:, :, 2].astype(int), pool_size[1])
+    roi_clipped[:, :, 3] = np.minimum(roi[:, :, 3].astype(int), pool_size[0])
+
+    # Now put the boxes where they should go with np.rint()
+    roi_clipped[:, :, :1] = np.rint(roi[:, :, :1])
+
+    # Finally shift boxes toward the middle if they are clipped at the edge
+    roi_clipped[:, :, 0] = np.minimum(roi[:, :, 0], int(pool_size[0] / 2))
+    roi_clipped[:, :, 1] = np.minimum(roi[:, :, 1], int(pool_size[1] / 2))
+    roi_clipped[:, :, 0] = np.maximum(
+        roi[:, :, 0], feature_size[0] - int(pool_size[0] / 2)
+    )
+    roi_clipped[:, :, 1] = np.maximum(
+        roi[:, :, 1], feature_size[1] - int(pool_size[1] / 2)
+    )
+
+    return roi_clipped
 
 
 class ROIPooling(tf.keras.layers.Layer):
