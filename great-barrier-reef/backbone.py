@@ -7,7 +7,7 @@ import tensorflow_hub as hub
 
 
 def instantiate(backbone_type, init_args):
-    '''
+    """
     Create a subclass of Backbone with type backbone_type
     and constructor arguments **init_args.
 
@@ -17,18 +17,18 @@ def instantiate(backbone_type, init_args):
         One of the defined backbones, 'InceptionResNet-V2', 'VGG16', 'ResNet50'
     init_args : dict
         Keywords to pass to the backbone constructor.
-    '''
+    """
 
     backbone_type = backbone_type.lower()
 
-    if backbone_type == 'inceptionresnet-v2':
+    if backbone_type == "inceptionresnet-v2":
         return Backbone_InceptionResNetV2(**init_args)
-    elif backbone_type == 'vgg16':
+    elif backbone_type == "vgg16":
         return Backbone_VGG16(**init_args)
-    elif backbone_type == 'resnet50':
+    elif backbone_type == "resnet50":
         return Backbone_ResNet50(**init_args)
     else:
-        raise ValueError('Argument backbone=%s is not recognized.' % backbone_type)
+        raise ValueError("Argument backbone=%s is not recognized." % backbone_type)
 
 
 class Backbone:
@@ -103,7 +103,7 @@ class Backbone:
         self,
         training_data,
         validation_data=None,
-        optimizer='adam',
+        optimizer="adam",
         epochs=[2, 10],
         learning_rates=[1e-3, 1e-6],
         optimizer_kwargs={},
@@ -180,9 +180,9 @@ class Backbone:
         if not isinstance(optimizer, tf.keras.optimizers.Optimizer):
             tf.keras.optimizers.deserialize(
                 {
-                    'class_name': optimizer,
-                    'config': {
-                        'learning_rate': learning_rates[1],
+                    "class_name": optimizer,
+                    "config": {
+                        "learning_rate": learning_rates[1],
                         **optimizer_kwargs,
                     },
                 }
@@ -216,7 +216,7 @@ class Backbone:
 class Backbone_InceptionResNetV2(Backbone):
 
     # Start by downloading pretrained weights from the Tensorflow hub
-    def __init__(self, input_shape=(720, 1280, 3), weights='imagenet', **kwargs):
+    def __init__(self, input_shape=(720, 1280, 3), weights="imagenet", **kwargs):
         """
         Initialize the network backbone. Downloads the Inception Resnet V2 pretrained on ImageNet.
 
@@ -255,7 +255,7 @@ class Backbone_InceptionResNetV2(Backbone):
 
 
 class Backbone_VGG16(Backbone):
-    def __init__(self, input_shape=(720, 1280, 3), weights='imagenet', **kwargs):
+    def __init__(self, input_shape=(720, 1280, 3), weights="imagenet", **kwargs):
         """
         Same arguments as Backbone_InceptionResNetV2,
         but using the smaller VGG16 network to speed up training.
@@ -292,7 +292,7 @@ class Backbone_VGG16(Backbone):
 
 
 class Backbone_ResNet50(Backbone):
-    def __init__(self, input_shape=(720, 1280, 3), weights='imagenet', **kwargs):
+    def __init__(self, input_shape=(720, 1280, 3), weights="imagenet", **kwargs):
         """
         Same arguments as Backbone_InceptionResNetV2,
         but using the base ResNet50 network. Trains and runs somewhat faster.

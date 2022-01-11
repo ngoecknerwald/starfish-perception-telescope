@@ -169,7 +169,8 @@ class RPNWrapper:
     def validate_anchor_box(self, xx, yy, ww, hh):
         """
         Validate whether or not an anchor box in the extracted feature space
-        defined by xx, yy, ww, hh is valid.
+        defined by xx, yy, ww, hh is valid. Note that xx,yy refers to the
+        bottom left corner of the box, not the middle.
 
         Arguments:
 
@@ -188,10 +189,10 @@ class RPNWrapper:
 
         """
 
-        xxmin = int(xx - ww / 2)
-        xxmax = int(xx + ww / 2)
-        yymin = int(yy - hh / 2)
-        yymax = int(yy + hh / 2)
+        xxmin = int(xx)
+        xxmax = int(xx + ww)
+        yymin = int(yy)
+        yymax = int(yy + hh)
 
         return (xxmin >= 0 and yymin >= 0) and (
             xxmax < self.backbone.output_shape[1]
@@ -229,6 +230,7 @@ class RPNWrapper:
     def ground_truth_IoU(self, annotations, xx, yy, hh, ww):
         """
         Compute the ground truth IoU for a set of boxes defined in feature space.
+        Note that xx,yy refers to the bottom left corner of the box, not the middle.
 
         Arguments:
 
@@ -251,11 +253,13 @@ class RPNWrapper:
 
         """
 
+        # In a "broken clock is right twice a day" sort of way this
+        # is now correct given the bounding box definition convention.
+
         # Coordinates and area of the proposed region
         x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
         w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
         proposal_box = (x, y, w, h)
-        # @sguns I've been using the convention x = image coordinates, xx = feature coords
 
         # Final output
         IoU = []
@@ -498,19 +502,19 @@ class RPNWrapper:
                 tf.constant(
                     [
                         [
-                            roi[4]["y"] - roi[4]["height"] / 2.0,
-                            roi[4]["x"] - roi[4]["width"] / 2.0,
-                            roi[4]["y"] + roi[4]["height"] / 2.0,
-                            roi[4]["x"] + roi[4]["width"] / 2.0,
+                            roi[4]["y"],
+                            roi[4]["x"],
+                            roi[4]["y"] + roi[4]["height"],
+                            roi[4]["x"] + roi[4]["width"],
                         ],
                     ]
                 ),
                 [
                     [
-                        y_pred - h_pred / 2.0,
-                        x_pred - w_pred / 2.0,
-                        y_pred + h_pred / 2.0,
-                        x_pred + w_pred / 2.0,
+                        y_pred,
+                        x_pred,
+                        y_pred + h_pred,
+                        x_pred + w_pred,
                     ],
                 ],
             )

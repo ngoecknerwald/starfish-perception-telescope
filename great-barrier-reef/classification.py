@@ -12,7 +12,7 @@ class Classifier(tf.keras.Model):
         n_classes=2,
         dropout=0.2,
     ):
-        '''
+        """
         Class for the Faster R-CNN output network.
 
         Arguments:
@@ -30,7 +30,7 @@ class Classifier(tf.keras.Model):
         dropout : float or None
             Dropout parameter to use between the dense and classification
             and bounding box regression layers.
-        '''
+        """
 
         super().__init__()
 
@@ -46,8 +46,8 @@ class Classifier(tf.keras.Model):
         self.dropout = dropout
 
         # Instantiate network components
-        self.dense1 = tf.keras.layers.Dense(self.dense_layers[0], activation='relu')
-        self.dense2 = tf.keras.layers.Dense(self.dense_layers[1], activation='relu')
+        self.dense1 = tf.keras.layers.Dense(self.dense_layers[0], activation="relu")
+        self.dense2 = tf.keras.layers.Dense(self.dense_layers[1], activation="relu")
         self.cls = tf.keras.layers.Dense(
             n_proposals * n_classes,
         )
@@ -74,7 +74,7 @@ class ClassificationWrapper:
         class_minibatch=16,
         class_dropout=0.2,
     ):
-        '''
+        """
         Wrapper class for the final classification model.
 
         Arguments :
@@ -83,7 +83,7 @@ class ClassificationWrapper:
 
         input_feature_dim
 
-        '''
+        """
 
         # Record for posterity
         self.input_feature_size = input_feature_size

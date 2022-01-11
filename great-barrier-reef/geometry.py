@@ -21,6 +21,7 @@ def calculate_IoU(a, b):
     IoU : scalar or array of dimension (N, M,...)
 
     """
+
     intersect = np.maximum(
         0,
         np.minimum(a[0] + a[2], b[0] + b[2]) - np.maximum(a[0], b[0]),
