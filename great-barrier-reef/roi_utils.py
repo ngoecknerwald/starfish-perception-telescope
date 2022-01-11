@@ -52,12 +52,9 @@ def clip_RoI(roi, feature_size, pool_size):
         fix_min = roi_clipped[:, :, mini] < pad // 2
         fix_max = (feature_size[si] - roi_clipped[:, :, maxi]) < (1 + pad) // 2
 
-        roi_clipped[:, :, mini][
-            np.logical_and(pad > 0, ~np.logical_or(fix_min, fix_max))
-        ] -= (pad // 2)
-        roi_clipped[:, :, maxi][
-            np.logical_and(pad > 0, ~np.logical_or(fix_min, fix_max))
-        ] += (1 + pad) // 2
+        symmetric = np.logical_and(pad > 0, ~np.logical_or(fix_min, fix_max))
+        roi_clipped[:, :, mini][symmetric] -= (pad[symmetric] // 2)
+        roi_clipped[:, :, maxi][symmetric] += (1 + pad[symmetric]) // 2
 
         roi_clipped[:, :, mini][np.logical_and(pad > 0, fix_min)] = 0
         roi_clipped[:, :, maxi][np.logical_and(pad > 0, fix_min)] = pool_size[si]
