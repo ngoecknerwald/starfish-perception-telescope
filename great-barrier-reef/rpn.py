@@ -699,7 +699,9 @@ class RPNWrapper:
         ww = batch_sort(ww, argsort, top)
         hh = batch_sort(hh, argsort, top)
 
-        xxmin,xxmax,yymin,yymax = geometry.center_to_boundary_coordinates(xx,yy,ww,hh)
+        xxmin, xxmax, yymin, yymax = geometry.center_to_boundary_coordinates(
+            xx, yy, ww, hh
+        )
 
         if not image_coords:
             output = tf.stack([xxmin, xxmax, yymin, yymax], axis=-1)

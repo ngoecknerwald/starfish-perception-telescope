@@ -3,27 +3,30 @@
 
 import numpy as np
 
-def center_to_boundary_coordinates(x,y,w,h):
+
+def center_to_boundary_coordinates(x, y, w, h):
     """
-    Convert center x, y, width, height to 
+    Convert center x, y, width, height to
     boundary xmin, xmax, ymin, ymax.
     """
     xmin = x - w / 2
     xmax = x + w / 2
     ymin = y - h / 2
     ymax = y + h / 2
-    return (xmin,xmax,ymin,ymax)
+    return (xmin, xmax, ymin, ymax)
 
-def boundary_to_center_coordinates(xmin,xmax,ymin,ymax):
+
+def boundary_to_center_coordinates(xmin, xmax, ymin, ymax):
     """
     Convert boundary xmin, xmax, ymin, ymax
     to center x,y,width,height.
     """
     x = (xmin + xmax) / 2
     y = (ymin + ymax) / 2
-    w = (xmax - xmin)
-    h = (ymax - ymin)
-    return (x,y,w,h)
+    w = xmax - xmin
+    h = ymax - ymin
+    return (x, y, w, h)
+
 
 def calculate_IoU(a, b):
     """
