@@ -14,7 +14,7 @@ def clip_RoI(roi, feature_size, pool_size):
 
     roi : np.ndarray or tf.Tensor
         Float tensor of the same size as returned by
-        IoU_supression. Shape is [image number, RoI number, (x_min, x_max, y_min, y_max)].
+        IoU_supression. Shape is [image number, RoI number, (x,y,w,h).
     feature_size : tuple of int
         Shape of the feature map or the input image.
         Assumed to be the same convention (image vs feature dim) as roi_pruned.
@@ -34,10 +34,11 @@ def clip_RoI(roi, feature_size, pool_size):
     assert feature_size[0] > pool_size[0] and feature_size[1] > pool_size[1]
 
     roi_clipped = np.zeros(roi.shape, dtype=int)
+    #  temporarily convert from x,y,w,h to x,y,x+w,y+h
     roi_clipped[:, :, 0] = np.maximum(0, roi[:, :, 0].astype(int))
-    roi_clipped[:, :, 1] = np.minimum(feature_size[1], roi[:, :, 1].astype(int))
-    roi_clipped[:, :, 2] = np.maximum(0, roi[:, :, 2].astype(int))
-    roi_clipped[:, :, 3] = np.minimum(feature_size[0], roi[:, :, 3].astype(int))
+    roi_clipped[:, :, 1] = np.maximum(0, roi[:, :, 1].astype(int))
+    roi_clipped[:, :, 2] = np.minimum(feature_size[1], (roi[:,:,0] + roi[:, :, 2]).astype(int))
+    roi_clipped[:, :, 3] = np.minimum(feature_size[0], (roi[:,:,1] + roi[:, :, 3]).astype(int))
 
     # Padding:
     # 0. Leave box alone if big enough.
@@ -46,7 +47,7 @@ def clip_RoI(roi, feature_size, pool_size):
     # 2. Elif not enough space on left (bottom), fix box to left (bottom) boundary
     # 3. Elif not enough space on right (top), fix box to right (top) boundary
 
-    for mini, maxi, si in zip([0, 2], [1, 3], [1, 0]):
+    for mini, maxi, si in zip([0, 1], [2, 3], [1, 0]):
 
         pad = pool_size[si] - (roi_clipped[:, :, maxi] - roi_clipped[:, :, mini])
         fix_min = roi_clipped[:, :, mini] < pad // 2
@@ -63,6 +64,10 @@ def clip_RoI(roi, feature_size, pool_size):
             feature_size[si] - pool_size[si]
         )
         roi_clipped[:, :, maxi][np.logical_and(pad > 0, fix_max)] = feature_size[si]
+
+    #  convert back from x,y,x+w,y+h to x,y,w,h
+    roi_clipped[:,:,2] -= roi_clipped[:,:,0]
+    roi_clipped[:,:,3] -= roi_clipped[:,:,1]
 
     return roi_clipped
 
@@ -189,7 +194,7 @@ class ROIPooling(tf.keras.layers.Layer):
     @staticmethod
     def _pool_roi(feature_map, roi, pooled_height, pooled_width):
 
-        region = feature_map[roi[2] : roi[3], roi[0] : roi[1], :]
+        region = feature_map[roi[1] : roi[1] + roi[3], roi[0] : roi[0] + roi[1], :]
         # Divide the region into non overlapping areas
         h_step = tf.cast(region.shape[0] / pooled_height, "int32")
         w_step = tf.cast(region.shape[1] / pooled_width, "int32")
