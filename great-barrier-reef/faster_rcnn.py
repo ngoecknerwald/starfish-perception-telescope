@@ -1,8 +1,24 @@
 # High-level class for the full Faster R-CNN network.
 import tensorflow as tf
-import backbone, classification, data_utils, rpn
+import backbone, classification, data_utils, rpn, roi_utils
 import os
 
+class FasterRCNN(tf.keras.Model):
+
+    def __init__(self, backbone, rpn, roi_pooling, classifier, top=100):
+        super().__init__()
+        self.backbone = backbone
+        self.rpn = rpn
+        self.roi_pooling = roi_pooling
+        self.classifier = classifier
+        self.roi_top = top
+
+    def call(self, x):
+        roi = self.rpn.propose_regions(x, top = self.roi_top)
+        x = self.backbone.extractor(x)
+        x = self.roi_pooling((x, roi))
+        cls, bbox = self.classifier.classifier(x)
+        return cls, bbox
 
 class FasterRCNNWrapper:
     def __init__(
@@ -13,6 +29,7 @@ class FasterRCNNWrapper:
         backbone_weights="finetune",
         rpn_weights=None,
         rpn_kwargs={},
+        roi_kwargs={'pool_size': (3,3), 'n_regions': 10},
         classifier_weights=None,
     ):
 
@@ -55,8 +72,10 @@ class FasterRCNNWrapper:
         self.instantiate_RPN(rpn_weights, rpn_kwargs)
 
         # Instantiate the tail network
-        self.instantiate_RoI_pool()
+        self.instantiate_RoI_pool(roi_kwargs)
         self.instantiate_classifier(classifier_weights)
+
+        self.instantiate_FasterRCNN()
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         """
@@ -165,14 +184,14 @@ class FasterRCNNWrapper:
                 self.data_loader_full.get_training(), self.data_loader_full.decode_label
             )
 
-    def instantiate_RoI_pool(self):
+    def instantiate_RoI_pool(self, roi_kwargs):
 
         """
         Do whatever constructor-y things need to be done for the NMS and ROI pooling operations.
 
         """
 
-        pass
+        self.RoI_pool = roi_utils.ROIPooling(**roi_kwargs)
 
     def instantiate_classifier(self, classifier_weights):
 
@@ -192,6 +211,10 @@ class FasterRCNNWrapper:
 
             assert os.path.exists(classifier_weights)
             self.rpnwrapper.load_classifier_state(classifier_weights)
+
+    def instantiate_FasterRCNN(self):
+        self.FasterRCNN = FasterRCNN(self.backbone, self.rpnwrapper, self.RoI_pool, self.classwrapper)
+
 
     def run_training(self):
         """
