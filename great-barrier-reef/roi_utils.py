@@ -174,12 +174,14 @@ class ROIPooling(tf.keras.layers.Layer):
         # x[0] = feature tensor
         # x[1] = output from rpn.propose_regions
 
-#TODO: rewrite this class to use vectorization instead of tf.map_fn
+# TODO: rewrite this class to use vectorization instead of tf.map_fn
+# though map_fn works nicely here because it broadcasts over the first dimension 
+# of both features and roi
 
         features, roi = x
-        roi_clipped = clip_RoI(roi, features.shape[1:3], self.pool_size)
-        roi_pruned = IoU_supression(roi_clipped, self.IoU_threshold, self.n_regions)
-        x = (features, roi_pruned)
+        roi_pruned = IoU_supression(roi, self.IoU_threshold, self.n_regions)
+        roi_clipped = clip_RoI(roi_pruned, features.shape[1:3], self.pool_size)
+        x = (features, roi_clipped)
 
         def curried_pool_rois(x):
             return ROIPooling._pool_rois(
