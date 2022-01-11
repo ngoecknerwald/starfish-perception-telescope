@@ -3,8 +3,8 @@ import tensorflow as tf
 import backbone, classification, data_utils, rpn, roi_utils
 import os
 
-class FasterRCNN(tf.keras.Model):
 
+class FasterRCNN(tf.keras.Model):
     def __init__(self, backbone, rpn, roi_pooling, classifier, top=100):
         super().__init__()
         self.backbone = backbone
@@ -14,11 +14,26 @@ class FasterRCNN(tf.keras.Model):
         self.roi_top = top
 
     def call(self, x):
-        roi = self.rpn.propose_regions(x, top = self.roi_top)
+
+        # Note from Neil: Do we need / want to do separate backbone
+        # feature extraction for the RPN and the final network?
+        # One could imagine some tuning operation where we run tf.keras.Model.compile()
+        # and Model.fit() allowing that to adjust the backbone but don't want the
+        # weights changing under the RPN's feet. That might be an argument for
+        # having two backbone instances and just manually propagating updates in the training
+        # cadence with get_weights() and set_weights().
+
+        # Also Note from Neil, if we don't do that then we should avoid double
+        # feature extraction running the backbone independently between
+        # the rpn.propose_regions() call and directly as part of the final network.
+
+        # Otherwise this looks dank
+        roi = self.rpn.propose_regions(x, top=self.roi_top)
         x = self.backbone.extractor(x)
         x = self.roi_pooling((x, roi))
         cls, bbox = self.classifier.classifier(x)
         return cls, bbox
+
 
 class FasterRCNNWrapper:
     def __init__(
@@ -29,7 +44,7 @@ class FasterRCNNWrapper:
         backbone_weights="finetune",
         rpn_weights=None,
         rpn_kwargs={},
-        roi_kwargs={'pool_size': (3,3), 'n_regions': 10},
+        roi_kwargs={"pool_size": (3, 3), "n_regions": 10},
         classifier_weights=None,
     ):
 
@@ -85,7 +100,7 @@ class FasterRCNNWrapper:
 
         datapath : str
             Location of the competition dataset.
-        do_thumbanail : bool
+        do_thumbnail : bool
             Also create the thumbnails for backbone pretraining.
         """
 
@@ -210,11 +225,12 @@ class FasterRCNNWrapper:
         if classifier_weights is not None:
 
             assert os.path.exists(classifier_weights)
-            self.rpnwrapper.load_classifier_state(classifier_weights)
+            self.classwrapper.load_classifier_state(classifier_weights)
 
     def instantiate_FasterRCNN(self):
-        self.FasterRCNN = FasterRCNN(self.backbone, self.rpnwrapper, self.RoI_pool, self.classwrapper)
-
+        self.FasterRCNN = FasterRCNN(
+            self.backbone, self.rpnwrapper, self.RoI_pool, self.classwrapper
+        )
 
     def run_training(self):
         """

@@ -37,8 +37,12 @@ def clip_RoI(roi, feature_size, pool_size):
     #  temporarily convert from x,y,w,h to x,y,x+w,y+h
     roi_clipped[:, :, 0] = np.maximum(0, roi[:, :, 0].astype(int))
     roi_clipped[:, :, 1] = np.maximum(0, roi[:, :, 1].astype(int))
-    roi_clipped[:, :, 2] = np.minimum(feature_size[1], (roi[:,:,0] + roi[:, :, 2]).astype(int))
-    roi_clipped[:, :, 3] = np.minimum(feature_size[0], (roi[:,:,1] + roi[:, :, 3]).astype(int))
+    roi_clipped[:, :, 2] = np.minimum(
+        feature_size[1], (roi[:, :, 0] + roi[:, :, 2]).astype(int)
+    )
+    roi_clipped[:, :, 3] = np.minimum(
+        feature_size[0], (roi[:, :, 1] + roi[:, :, 3]).astype(int)
+    )
 
     # Padding:
     # 0. Leave box alone if big enough.
@@ -54,7 +58,7 @@ def clip_RoI(roi, feature_size, pool_size):
         fix_max = (feature_size[si] - roi_clipped[:, :, maxi]) < (1 + pad) // 2
 
         symmetric = np.logical_and(pad > 0, ~np.logical_or(fix_min, fix_max))
-        roi_clipped[:, :, mini][symmetric] -= (pad[symmetric] // 2)
+        roi_clipped[:, :, mini][symmetric] -= pad[symmetric] // 2
         roi_clipped[:, :, maxi][symmetric] += (1 + pad[symmetric]) // 2
 
         roi_clipped[:, :, mini][np.logical_and(pad > 0, fix_min)] = 0
@@ -66,8 +70,8 @@ def clip_RoI(roi, feature_size, pool_size):
         roi_clipped[:, :, maxi][np.logical_and(pad > 0, fix_max)] = feature_size[si]
 
     #  convert back from x,y,x+w,y+h to x,y,w,h
-    roi_clipped[:,:,2] -= roi_clipped[:,:,0]
-    roi_clipped[:,:,3] -= roi_clipped[:,:,1]
+    roi_clipped[:, :, 2] -= roi_clipped[:, :, 0]
+    roi_clipped[:, :, 3] -= roi_clipped[:, :, 1]
 
     return roi_clipped
 
@@ -164,7 +168,7 @@ class ROIPooling(tf.keras.layers.Layer):
     # based on https://medium.com/xplore-ai/implementing-attention-in-tensorflow-keras-using-roi-pooling-992508b6592b
     # added cropping and minimum size padding
 
-    def __init__(self, pool_size, n_regions, IoU_threshold = 0.4, **kwargs):
+    def __init__(self, pool_size, n_regions, IoU_threshold=0.4, **kwargs):
         super().__init__(**kwargs)
         self.pool_size = pool_size
         self.n_regions = n_regions
@@ -174,9 +178,9 @@ class ROIPooling(tf.keras.layers.Layer):
         # x[0] = feature tensor
         # x[1] = output from rpn.propose_regions
 
-# TODO: rewrite this class to use vectorization instead of tf.map_fn
-# though map_fn works nicely here because it broadcasts over the first dimension 
-# of both features and roi
+        # TODO: rewrite this class to use vectorization instead of tf.map_fn
+        # though map_fn works nicely here because it broadcasts over the first dimension
+        # of both features and roi
 
         features, roi = x
         roi_pruned = IoU_supression(roi, self.IoU_threshold, self.n_regions)
@@ -184,9 +188,7 @@ class ROIPooling(tf.keras.layers.Layer):
         x = (features, roi_clipped)
 
         def curried_pool_rois(x):
-            return ROIPooling._pool_rois(
-                x[0], x[1], self.pool_size
-            )
+            return ROIPooling._pool_rois(x[0], x[1], self.pool_size)
 
         pooled_areas = tf.map_fn(curried_pool_rois, x, dtype=tf.float32)
         return pooled_areas
