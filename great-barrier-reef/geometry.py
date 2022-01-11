@@ -21,22 +21,14 @@ def calculate_IoU(a, b):
     IoU : scalar or array of dimension (N, M,...)
 
     """
-    xmin_a, xmax_a = a[0] - a[2] / 2, a[0] + a[2] / 2
-    ymin_a, ymax_a = a[1] - a[3] / 2, a[1] + a[3] / 2
-    xmin_b, xmax_b = b[0] - b[2] / 2, b[0] + b[2] / 2
-    ymin_b, ymax_b = b[1] - b[3] / 2, b[1] + b[3] / 2
 
     intersect = np.maximum(
         0,
-        1 + (np.minimum(xmax_a, xmax_b) - np.maximum(xmin_a, xmin_b)),
+        np.minimum(a[0] + a[2], b[0] + b[2]) - np.maximum(a[0], b[0]),
     ) * np.maximum(
         0,
-        1 + (np.minimum(ymax_a, ymax_b) - np.maximum(ymin_a, ymin_b)),
+        np.minimum(a[1] + a[3], b[1] + b[3]) - np.maximum(a[1], b[1]),
     )
-    overlap = (
-        (xmax_a - xmin_a) * (ymax_a - ymin_a)
-        + (xmax_b - xmin_b) * (ymax_b - ymin_b)
-        - intersect
-    )
+    overlap = (a[2] * a[3]) + (b[2] * b[3]) - intersect
 
     return intersect / overlap
