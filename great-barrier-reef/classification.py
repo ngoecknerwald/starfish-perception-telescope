@@ -7,7 +7,6 @@ class Classifier(tf.keras.Model):
     def __init__(
         self,
         n_proposals,
-        input_feature_size,
         dense_layers=4096,
         n_classes=2,
         dropout=0.2,
@@ -19,8 +18,6 @@ class Classifier(tf.keras.Model):
 
         n_proposals : int
             Number of RoIs passed from the RPN to the output network.
-        input_feature_dim : tuple of int
-            Dimension of the layers after the RoI pooling operation.
         dense_layers : int or list of int
             Number of fully connected neurons in the dense layers before
             the classification and bounding box regression steps.
@@ -36,7 +33,6 @@ class Classifier(tf.keras.Model):
 
         # Record for posterity
         self.n_proposals = n_proposals
-        self.input_feature_size = input_feature_size
         self.dense_layers = (
             [dense_layers, dense_layers]
             if isinstance(dense_layers, int)
@@ -46,17 +42,19 @@ class Classifier(tf.keras.Model):
         self.dropout = dropout
 
         # Instantiate network components
+        self.flatten = tf.keras.layers.Flatten()
         self.dense1 = tf.keras.layers.Dense(self.dense_layers[0], activation="relu")
         self.dense2 = tf.keras.layers.Dense(self.dense_layers[1], activation="relu")
         self.cls = tf.keras.layers.Dense(
             n_proposals * n_classes,
         )
         self.bbox = tf.keras.layers.Dense(n_proposals * n_classes * 4)
-        self.dropout1 = tf.keras.layers.Dropout(0.2)
+        self.dropout1 = tf.keras.layers.Dropout(self.dropout)
 
-    def call(x, training=False):
-        x = dense1(x)
-        x = dense2(x)
+    def call(self, x, training=False):
+        x = self.flatten(x)
+        x = self.dense1(x)
+        x = self.dense2(x)
         if training:
             x = self.dropout1(x)
         cls = self.cls(x)
