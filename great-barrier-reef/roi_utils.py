@@ -35,9 +35,9 @@ def clip_RoI(roi, feature_size, pool_size):
 
     roi_clipped = np.zeros(roi.shape, dtype=int)
     roi_clipped[:, :, 0] = np.maximum(0, roi[:, :, 0].astype(int))
-    roi_clipped[:, :, 1] = np.maximum(feature_size[1], roi[:, :, 1].astype(int))
+    roi_clipped[:, :, 1] = np.minimum(feature_size[1], roi[:, :, 1].astype(int))
     roi_clipped[:, :, 2] = np.maximum(0, roi[:, :, 2].astype(int))
-    roi_clipped[:, :, 3] = np.maximum(feature_size[0], roi[:, :, 3].astype(int))
+    roi_clipped[:, :, 3] = np.minimum(feature_size[0], roi[:, :, 3].astype(int))
 
     # Padding:
     # 0. Leave box alone if big enough.
