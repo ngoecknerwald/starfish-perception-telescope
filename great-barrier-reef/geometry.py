@@ -21,10 +21,10 @@ def calculate_IoU(a, b):
     IoU : scalar or array of dimension (N, M,...)
 
     """
-    xmin_a, xmax_a = a[0] - a[2] / 2, a[0] + a[2] / 2
-    ymin_a, ymax_a = a[1] - a[3] / 2, a[1] + a[3] / 2
-    xmin_b, xmax_b = b[0] - b[2] / 2, b[0] + b[2] / 2
-    ymin_b, ymax_b = b[1] - b[3] / 2, b[1] + b[3] / 2
+    xmin_a, xmax_a = a[0], a[0] + a[2]
+    ymin_a, ymax_a = a[1], a[1] + a[3]
+    xmin_b, xmax_b = b[0], b[0] + b[2]
+    ymin_b, ymax_b = b[1], b[1] + b[3]
 
     intersect = np.maximum(
         0,

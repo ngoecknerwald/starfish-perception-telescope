@@ -6,7 +6,7 @@ import numpy as np
 
 def clip_RoI(roi, feature_size, pool_size):
 
-    '''
+    """
     Take the IoU before or after IoU supression and clip to the image boundaries.
     Agnostic to feature dimensions or image dimensions.
 
@@ -25,7 +25,7 @@ def clip_RoI(roi, feature_size, pool_size):
 
     roi_clipped : np.ndarray
         RoIs clipped to the image bondaries and the minimum sizes.
-    '''
+    """
 
     # Note that the roi is ordered x,y where as numpy indexing is y,x
     # meaning it looks like the dimensions are jumbled. I'm fairly certain it's right.
