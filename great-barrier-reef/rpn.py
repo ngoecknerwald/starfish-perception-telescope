@@ -189,6 +189,8 @@ class RPNWrapper:
 
         """
 
+        # TODO vectorize this / possibly eliminate this method!
+
         xxmin = int(xx)
         xxmax = int(xx + ww)
         yymin = int(yy)
@@ -261,24 +263,21 @@ class RPNWrapper:
         w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
         proposal_box = (x, y, w, h)
 
-        # Final output
-        IoU = []
-
-        # Cycle through the annotations and compute IoU
-        for annotation in annotations:
-
-            annotation_box = np.asarray(
-                [
-                    annotation["x"],
-                    annotation["y"],
-                    annotation["width"],
-                    annotation["height"],
-                ]
+        # Faster via list comprehension
+        return [
+            geometry.calculate_IoU(
+                proposal_box,
+                np.asarray(
+                    [
+                        annotation["x"],
+                        annotation["y"],
+                        annotation["width"],
+                        annotation["height"],
+                    ]
+                ),
             )
-
-            IoU.append(geometry.calculate_IoU(proposal_box, annotation_box))
-
-        return IoU
+            for annotation in annotations
+        ]
 
     # Method that will eventually belong to the RPNWrapper class
     def accumulate_roi(self, label_decode, image_minibatch):
@@ -331,19 +330,19 @@ class RPNWrapper:
                 iyy = np.random.randint(self.anchor_xx.shape[0])
                 ik = np.random.randint(self.k)
 
-                # Get coords for the guess
-                xx = self.anchor_xx[iyy, ixx]
-                yy = self.anchor_yy[iyy, ixx]
-                hh = self.hh[ik]
-                ww = self.ww[ik]
-
                 # Check if this is a valid negative RoI
                 if self.valid_mask[iyy, iyy, ik] and (
                     len(this_label) == 0
                     or all(
                         [
                             IoU < self.IoU_neg_threshold
-                            for IoU in self.ground_truth_IoU(this_label, xx, yy, hh, ww)
+                            for IoU in self.ground_truth_IoU(
+                                this_label,
+                                self.anchor_xx[iyy, ixx],
+                                self.anchor_yy[iyy, ixx],
+                                self.hh[ik],
+                                self.ww[ik],
+                            )
                         ]
                     )
                 ):
@@ -708,9 +707,9 @@ class RPNWrapper:
             return output
 
         # Convert to image plane
-        x,y = self.backbone.feature_coords_to_image_coords(xx, yy) 
-        w,h = self.backbone.feature_coords_to_image_coords(ww, hh) 
-        return tf.stack([x,y,w,h], axis=-1)
+        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
+        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
+        return tf.stack([x, y, w, h], axis=-1)
 
     def save_rpn_state(self, filename):
         """
