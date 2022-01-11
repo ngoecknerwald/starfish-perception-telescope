@@ -164,40 +164,48 @@ class ROIPooling(tf.keras.layers.Layer):
     # based on https://medium.com/xplore-ai/implementing-attention-in-tensorflow-keras-using-roi-pooling-992508b6592b
     # added cropping and minimum size padding
 
-    def __init__(self, pooled_height, pooled_width, **kwargs):
+    def __init__(self, pool_size, n_regions, IoU_threshold = 0.4, **kwargs):
         super().__init__(**kwargs)
-        self.pooled_height = pooled_height
-        self.pooled_width = pooled_width
+        self.pool_size = pool_size
+        self.n_regions = n_regions
+        self.IoU_threshold = IoU_threshold
 
     def call(self, x):
         # x[0] = feature tensor
-        # x[1] = output from rpn.propose_regions. Coordinates (xmin, xmax, ymin, ymax).
+        # x[1] = output from rpn.propose_regions
+
+#TODO: rewrite this class to use vectorization instead of tf.map_fn
+
+        features, roi = x
+        roi_clipped = clip_RoI(roi, features.shape[1:3], self.pool_size)
+        roi_pruned = IoU_supression(roi_clipped, self.IoU_threshold, self.n_regions)
+        x = (features, roi_pruned)
 
         def curried_pool_rois(x):
             return ROIPooling._pool_rois(
-                x[0], x[1], self.pooled_height, self.pooled_width
+                x[0], x[1], self.pool_size
             )
 
         pooled_areas = tf.map_fn(curried_pool_rois, x, dtype=tf.float32)
         return pooled_areas
 
     @staticmethod
-    def _pool_rois(feature_map, rois, pooled_height, pooled_width):
+    def _pool_rois(feature_map, rois, pool_size):
         """Applies ROI pooling for a single image and various ROIs"""
 
         def curried_pool_roi(roi):
-            return ROIPooling._pool_roi(feature_map, roi, pooled_height, pooled_width)
+            return ROIPooling._pool_roi(feature_map, roi, pool_size)
 
         pooled_areas = tf.map_fn(curried_pool_roi, rois, dtype=tf.float32)
         return pooled_areas
 
     @staticmethod
-    def _pool_roi(feature_map, roi, pooled_height, pooled_width):
+    def _pool_roi(feature_map, roi, pool_size):
 
         region = feature_map[roi[1] : roi[1] + roi[3], roi[0] : roi[0] + roi[1], :]
         # Divide the region into non overlapping areas
-        h_step = tf.cast(region.shape[0] / pooled_height, "int32")
-        w_step = tf.cast(region.shape[1] / pooled_width, "int32")
+        h_step = tf.cast(region.shape[0] / pool_size[0], "int32")
+        w_step = tf.cast(region.shape[1] / pool_size[1], "int32")
 
         areas = [
             [
