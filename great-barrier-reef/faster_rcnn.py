@@ -42,8 +42,10 @@ class FasterRCNNWrapper:
         datapath="/content",
         backbone_type="InceptionResNet-V2",
         backbone_weights="finetune",
+        backbone_trainable=False,
         rpn_weights=None,
         rpn_kwargs={},
+        rpn_trainable=False,
         roi_kwargs={},
         classifier_weights=None,
         classifier_kwargs={},
@@ -67,10 +69,14 @@ class FasterRCNNWrapper:
             Options are 'imagenet' to use pretrained weights from ImageNet, 'finetune'
             to run the fine tuning loop with a classification network on thumbnails,
             or a file path to load existing fine-tuned weights.
+        backbone_trainable : bool
+            Train/freeze backbone weights.
         rpn_weights : str or None
             Load pre-trained weights for the RPN from this file path.
         rpn_kwargs : dict
             Optional keyword arguments passed to the RPN wrapper.
+        rpn_trainable : bool
+            Train/freeze rpn weights.
         roi_kwargs : dict
             Optional keyword arguments passed to the RoI Pooling layer.
         classifier_weights : str or None
@@ -90,9 +96,11 @@ class FasterRCNNWrapper:
         )
 
         # Instantiate backbone
+        self._backbone_trainable = backbone_trainable
         self.instantiate_backbone(backbone_type, backbone_weights)
 
         # Instantiate the RPN
+        self._rpn_trainable = rpn_trainable
         self.instantiate_RPN(rpn_weights, rpn_kwargs)
 
         # Instantiate the tail network
@@ -120,6 +128,24 @@ class FasterRCNNWrapper:
         else:
             self.data_loader_thumb = None
 
+    @property
+    def backbone_trainable(self):
+        return self._backbone_trainable
+
+    @backbone_trainable.setter
+    def backbone_trainable(self, value):
+        self._backbone_trainable = value
+        self.backbone.extractor.trainable = value
+
+    @property
+    def rpn_trainable(self):
+        return self._rpn_trainable
+
+    @rpn_trainable.setter
+    def rpn_trainable(self, value):
+        self._rpn_trainable = value
+        self.rpnwrapper.rpn.trainable = value
+    
     def instantiate_backbone(
         self,
         backbone_type,
@@ -181,6 +207,8 @@ class FasterRCNNWrapper:
             print("Loading backbone weights from %s" % backbone_weights)
             self.backbone.load_backbone(backbone_weights)
 
+        self.backbone.extractor.trainable = self.backbone_trainable
+
     def instantiate_RPN(self, rpn_weights, rpn_kwargs):
         """
         Train the RPN itself.
@@ -207,6 +235,8 @@ class FasterRCNNWrapper:
             self.rpnwrapper.train_rpn(
                 self.data_loader_full.get_training(), self.data_loader_full.decode_label
             )
+        
+        self.rpnwrapper.rpn.trainable = self.rpn_trainable
 
     def instantiate_RoI_pool(self, roi_kwargs):
 
