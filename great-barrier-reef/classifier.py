@@ -65,11 +65,11 @@ class Classifier(tf.keras.Model):
 class ClassifierWrapper:
     def __init__(
         self,
-        input_feature_size=(7, 7, 1536),
+        n_proposals, 
+        dense_layers = 4096,
         learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
             initial_learning_rate=1e-2, decay_steps=1000, decay_rate=0.9
         ),
-        class_minibatch=16,
         class_dropout=0.2,
     ):
         """
@@ -84,12 +84,11 @@ class ClassifierWrapper:
         """
 
         # Record for posterity
-        self.input_feature_size = input_feature_size
         self.learning_rate = learning_rate
 
         # Network and optimizer
         self.classifier = Classifier(
-            class_minibatch, input_feature_size, dropout=class_dropout
+            n_proposals, dropout=class_dropout, dense_layers=dense_layers,
         )
         self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
 

@@ -168,10 +168,10 @@ class ROIPooling(tf.keras.layers.Layer):
     # based on https://medium.com/xplore-ai/implementing-attention-in-tensorflow-keras-using-roi-pooling-992508b6592b
     # added cropping and minimum size padding
 
-    def __init__(self, pool_size, n_regions, IoU_threshold=0.4, **kwargs):
+    def __init__(self, n_regions, pool_size=(7,7), IoU_threshold=0.4, **kwargs):
         super().__init__(**kwargs)
-        self.pool_size = pool_size
         self.n_regions = n_regions
+        self.pool_size = pool_size
         self.IoU_threshold = IoU_threshold
 
     def call(self, x):

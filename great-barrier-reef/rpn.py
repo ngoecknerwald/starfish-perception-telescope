@@ -83,6 +83,7 @@ class RPNWrapper:
         IoU_neg_threshold=0.1,
         IoU_pos_threshold=0.7,
         rpn_dropout=0.2,
+        n_roi=1000,
     ):
         """
         Initialize the RPN model for pretraining.
@@ -109,6 +110,8 @@ class RPNWrapper:
             IoU to declare that a region proposal is a positive example.
         rpn_dropout : float or None
             Add dropout to the RPN with this fraction. Pass None to skip.
+        n_roi : int
+            Number of regions to propose in forward pass. Pass -1 to return all.
         """
 
         # Store the image size
@@ -122,6 +125,7 @@ class RPNWrapper:
         self.IoU_neg_threshold = IoU_neg_threshold
         self.IoU_pos_threshold = IoU_pos_threshold
         self.rpn_dropout = rpn_dropout
+        self.n_roi = n_roi
 
         # Anchor box sizes
         self.build_anchor_boxes()
@@ -600,7 +604,7 @@ class RPNWrapper:
 
             print("")
 
-    def propose_regions(self, minibatch, top=-1, image_coords=False, ignore_bbox=False):
+    def propose_regions(self, minibatch, image_coords=False, ignore_bbox=False):
         """
         Run the RPN in forward mode on a minibatch of images.
         This method is used to train the final classification network
@@ -688,19 +692,19 @@ class RPNWrapper:
         argsort = argsort[:, ::-1]
 
         # If no limit requested, just return everything
-        if top < 1:
-            top = objectness.shape[1]
+        if self.n_roi < 1:
+            self.n_roi = objectness.shape[1]
 
-        def batch_sort(arr, inds, top):
+        def batch_sort(arr, inds, n):
             return np.take_along_axis(arr.reshape(arr.shape[0], -1), inds, axis=-1)[
-                :, :top
+                :, :n
             ]
 
         # Sort things by objectness
-        xx = batch_sort(xx, argsort, top)
-        yy = batch_sort(yy, argsort, top)
-        ww = batch_sort(ww, argsort, top)
-        hh = batch_sort(hh, argsort, top)
+        xx = batch_sort(xx, argsort, self.n_roi)
+        yy = batch_sort(yy, argsort, self.n_roi)
+        ww = batch_sort(ww, argsort, self.n_roi)
+        hh = batch_sort(hh, argsort, self.n_roi)
 
         if not image_coords:
             output = tf.stack([xx, yy, ww, hh], axis=-1)

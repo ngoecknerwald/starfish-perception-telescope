@@ -5,13 +5,12 @@ import os
 
 
 class FasterRCNN(tf.keras.Model):
-    def __init__(self, backbone, rpn, roi_pooling, classifier, top=100):
+    def __init__(self, backbone, rpn, roi_pooling, classifier):
         super().__init__()
         self.backbone = backbone
         self.rpn = rpn
         self.roi_pooling = roi_pooling
         self.classifier = classifier
-        self.roi_top = top
 
     def call(self, x):
 
@@ -28,7 +27,7 @@ class FasterRCNN(tf.keras.Model):
         # the rpn.propose_regions() call and directly as part of the final network.
 
         # Otherwise this looks dank
-        roi = self.rpn.propose_regions(x, top=self.roi_top)
+        roi = self.rpn.propose_regions(x)
         x = self.backbone.extractor(x)
         x = self.roi_pooling((x, roi))
         cls, bbox = self.classifier.classifier(x)
@@ -39,20 +38,25 @@ class FasterRCNNWrapper:
     def __init__(
         self,
         input_shape=(720, 1280, 3),
+        n_proposals=30,
         datapath="/content",
         backbone_type="InceptionResNet-V2",
         backbone_weights="finetune",
         rpn_weights=None,
         rpn_kwargs={},
-        roi_kwargs={"pool_size": (3, 3), "n_regions": 10},
+        roi_kwargs={},
         classifier_weights=None,
+        classifier_kwargs={},
     ):
 
         """
         Instantiate the wrapper for the overall Faster R-CNN
 
         Arguments:
-
+        input_shape : arr or tuple
+            Shape of input image (y,x,channels)
+        n_proposals : 
+            Number of regions proposed by the RPN.
         datapath : str
             Location of the competition dataset.
         backbone_type : str
@@ -67,13 +71,18 @@ class FasterRCNNWrapper:
             Load pre-trained weights for the RPN from this file path.
         rpn_kwargs : dict
             Optional keyword arguments passed to the RPN wrapper.
+        roi_kwargs : dict
+            Optional keyword arguments passed to the RoI Pooling layer.
         classifier_weights : str or None
             Saved weights for the final classification network.
+        classifier_kwargs : dict
+            Optional keyword arguments passed to the Classifier wrapper.
 
         """
 
         # Record for posterity
         self.input_shape = input_shape
+        self.n_proposals = n_proposals
 
         # Instantiate data loading class
         self.instantiate_data_loaders(
@@ -88,7 +97,7 @@ class FasterRCNNWrapper:
 
         # Instantiate the tail network
         self.instantiate_RoI_pool(roi_kwargs)
-        self.instantiate_classifier(classifier_weights)
+        self.instantiate_classifier(classifier_weights, classifier_kwargs)
 
         self.instantiate_FasterRCNN()
 
@@ -206,9 +215,9 @@ class FasterRCNNWrapper:
 
         """
 
-        self.RoI_pool = roi_pooling.ROIPooling(**roi_kwargs)
+        self.RoI_pool = roi_pooling.ROIPooling(self.n_proposals, **roi_kwargs)
 
-    def instantiate_classifier(self, classifier_weights):
+    def instantiate_classifier(self, classifier_weights, classifier_kwargs):
 
         """
         Instantiate the classifier wrapper.
@@ -220,7 +229,7 @@ class FasterRCNNWrapper:
         """
 
         # TODO wire the input sizes from the backbone and IoU suppression / RoI pooling into here.
-        self.classwrapper = classifier.ClassifierWrapper()
+        self.classwrapper = classifier.ClassifierWrapper(self.n_proposals, **classifier_kwargs)
 
         if classifier_weights is not None:
 
