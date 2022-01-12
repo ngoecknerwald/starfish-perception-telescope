@@ -1,6 +1,6 @@
 # High-level class for the full Faster R-CNN network.
 import tensorflow as tf
-import backbone, classification, data_utils, rpn, roi_utils
+import backbone, classifier, data_utils, rpn, roi_pooling
 import os
 
 
@@ -206,7 +206,7 @@ class FasterRCNNWrapper:
 
         """
 
-        self.RoI_pool = roi_utils.ROIPooling(**roi_kwargs)
+        self.RoI_pool = roi_pooling.ROIPooling(**roi_kwargs)
 
     def instantiate_classifier(self, classifier_weights):
 
@@ -220,7 +220,7 @@ class FasterRCNNWrapper:
         """
 
         # TODO wire the input sizes from the backbone and IoU suppression / RoI pooling into here.
-        self.classwrapper = classification.ClassificationWrapper()
+        self.classwrapper = classifier.ClassifierWrapper()
 
         if classifier_weights is not None:
 

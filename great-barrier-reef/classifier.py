@@ -62,7 +62,7 @@ class Classifier(tf.keras.Model):
         return cls, bbox
 
 
-class ClassificationWrapper:
+class ClassifierWrapper:
     def __init__(
         self,
         input_feature_size=(7, 7, 1536),
