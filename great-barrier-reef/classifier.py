@@ -65,8 +65,9 @@ class Classifier(tf.keras.Model):
 class ClassifierWrapper:
     def __init__(
         self,
+        backbone,
         n_proposals,
-        dense_layers=4096,
+        dense_layers=1024,
         learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
             initial_learning_rate=1e-2, decay_steps=1000, decay_rate=0.9
         ),
@@ -78,13 +79,23 @@ class ClassifierWrapper:
         Arguments :
 
         backbone : subclass of backbone.Backbone()
-
-        input_feature_dim
+            Used for geometry methods when taking a training step.
+        n_proposals : int
+            Number of proposals handed in from the pooled RoI
+        dense_layers : int
+            Number of neurons in the dense network.
+        learning_rate : float or tf.keras.optimizers.schedules.LearningRateSchedule
+            Learning rate when tuning only the classification layers.
+        class_dropout : float between 0 and 1
+            Dropout parameter to use when training the classification layers.
 
         """
 
         # Record for posterity
+        self.backbone = backbone
+        self.n_proposals = n_proposals
         self.learning_rate = learning_rate
+        self.dense_layers = dense_layers
 
         # Network and optimizer
         self.classifier = Classifier(
@@ -116,6 +127,37 @@ class ClassifierWrapper:
 
         self.classifier = tf.keras.models.load_model(filename)
 
-    def compute_loss(self, cls, bbox):
-        # placeholder
-        return tf.math.reduce_sum(cls) + tf.math.reduce_sum(bbox)
+    def training_step(self, features, roi, label_x):
+
+        """
+        Take a training step with the classification network.
+
+        Arguments:
+
+        features : tf.tensor
+            Image convolved by the backbone.
+        roi : tf.tensor
+            Slice of features output by the RoI pooling operation
+        label : list of dict
+            Decoded grond truth labels for the training minibatch.
+
+        """
+
+        # Cut the features down using the pooled roi
+        features_pool = None  # TODO fill this in
+
+        with tf.GradientTape() as tape:
+            cls, bbox = self.classifier(features_pool)
+            loss = 0.0  # TODO fill this in
+
+        # Compute gradients
+        gradients = tape.gradient(loss, self.classifier.trainable_variables)
+
+        # Apply gradients
+        self.classwrapperoptimizer.apply_gradients(
+            (grad, var)
+            for grad, var in zip(
+                gradients, self.classwrapper.classifier.trainable_variables
+            )
+            if grad is not None
+        )

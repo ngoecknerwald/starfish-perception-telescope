@@ -74,6 +74,9 @@ class FasterRCNNWrapper:
         # This should be instantiated last
         self.instantiate_classifier(classifier_weights, classifier_kwargs)
 
+        # Now do the first order training of the classification weights
+        self.train_classifier()
+
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         """
         Create the data loader classes.
@@ -220,11 +223,10 @@ class FasterRCNNWrapper:
 
         """
 
-        # TODO assert that the other
-
-        # TODO wire the input sizes from the backbone and IoU suppression / RoI pooling into here.
+        # Note that this is associated with self.backbone whereas
+        # the rpn is associated with self.backbone_rpn
         self.classwrapper = classifier.ClassifierWrapper(
-            self.n_proposals, **classifier_kwargs
+            self.backbone, self.n_proposals, **classifier_kwargs
         )
 
         if classifier_weights is not None:
@@ -232,61 +234,46 @@ class FasterRCNNWrapper:
             assert os.path.exists(classifier_weights)
             self.classwrapper.load_classifier_state(classifier_weights)
 
-    def predict(self, x):
-        """
-        Run the network in a forward pass with some
-
-
-
-        """
-
-    def train_classifier(self):
+    def train_classifier(self, epochs=5):
         """
         Train the classifier holding the backbone weights fixed. Written
         as a method in FasterRCNNWrapper because the training step needs
         access to the backbone, RPN, and RoI pooling layers.
 
-        """
+        Arguments:
 
-        # TODO make this go
+        epochs : int
+            Number of epochs to run training for.
 
-        pass
-
-    def fine_tuning_loop(self, iterations=5):
-        """
-        Do a fine tuning pass through the RPN and classifier layers.
+        This method does not fine tune the backbone weights.
 
         """
 
-        pass
+        # Now run the main loop. This does a forward pass through the RPN
+        # and hands the proposed regions + features to the classifier
+        for epoch in range(epochs):
 
-    def training_step(self, image):
+            print("Classifier training epoch %d" % epoch, end="")
 
-        """
-        ## only make classifier trainable for now
-        features = self.backbone.extractor(image)
-        roi = self.rpnwrapper.propose_regions(image)
-        features = self.RoI_pool((features, roi))
+            for i, (train_x, label_x) in enumerate(
+                self.data_loader_full.get_training()
+            ):
 
-        with tf.GradientTape() as tape:
-            cls, bbox = self.classwrapper.classifier(features)
-            loss = self.compute_loss(cls, bbox)
+                if i % 100 == 0:
+                    print(".", end="")
 
-        gradients = tape.gradient(
-            loss, self.classwrapper.classifier.trainable_variables
-        )
-        self.optimizer.apply_gradients(
-            (grad, var)
-            for grad, var in zip(
-                gradients, self.classwrapper.classifier.trainable_variables
-            )
-            if grad is not None
-        )
+                # Propose and then pool RoI
+                roi = self.rpnwrapper.propose_regions(train_x)
+                roi = self.RoI_pool(roi)
 
-        """
+                # Compute features with the backbone associated with the classifier
+                features = self.backbone.extractor(train_x)
 
-        pass
+                # Take a gradient step
+                self.classwrapper.training_step(
+                    features,
+                    roi,
+                    [self.data_loader_full.decode_label(_label) for _label in label_x],
+                )
 
-    def train_classifier(self):
-
-        pass
+            print("")
