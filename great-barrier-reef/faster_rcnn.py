@@ -18,6 +18,7 @@ class FasterRCNNWrapper:
         roi_kwargs={},
         classifier_weights=None,
         classifier_kwargs={},
+        finetuning_epochs=5,
     ):
 
         """
@@ -73,9 +74,6 @@ class FasterRCNNWrapper:
 
         # This should be instantiated last
         self.instantiate_classifier(classifier_weights, classifier_kwargs)
-
-        # Now do the first order training of the classification weights
-        self.train_classifier()
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         """
@@ -165,7 +163,7 @@ class FasterRCNNWrapper:
         # Create a new backbone and copy weights over to make a deep copy
         init_args = {"input_shape": None, "weights": None}
         self.backbone_rpn = backbone.instantiate(backbone_type, init_args)
-        self.backbone_rpn.network.set_weights(self.backbone.get_weights())
+        self.backbone_rpn.network.set_weights(self.backbone.network.get_weights())
 
     def instantiate_RPN(self, rpn_weights, rpn_kwargs):
         """
@@ -206,7 +204,7 @@ class FasterRCNNWrapper:
 
         """
 
-        self.RoI_pool = roi_pooling.RoIPooling(self.n_proposals, **roi_kwargs)
+        self.RoI_pool = roi_pooling.RoIPooling(self.backbone.output_shape, **roi_kwargs)
 
     def instantiate_classifier(self, classifier_weights, classifier_kwargs):
 
@@ -219,9 +217,11 @@ class FasterRCNNWrapper:
             Saved weights for the final classification network.
         classifier_kwargs : dict
             Optional keyword arguments to pass to the classification constructor.
-
-
+            Takes 'epochs' : int to set the number of epochs to run the initial training.
         """
+
+        # Number of epochs to train the classifier network
+        epochs = classifier_kwargs.pop("epochs", 5)
 
         # Note that this is associated with self.backbone whereas
         # the rpn is associated with self.backbone_rpn
@@ -234,7 +234,11 @@ class FasterRCNNWrapper:
             assert os.path.exists(classifier_weights)
             self.classwrapper.load_classifier_state(classifier_weights)
 
-    def train_classifier(self, epochs=5):
+        else:  # Do the first order training of the classification weights
+
+            self.train_classifier(epochs)
+
+    def train_classifier(self, epochs):
         """
         Train the classifier holding the backbone weights fixed. Written
         as a method in FasterRCNNWrapper because the training step needs
@@ -249,7 +253,7 @@ class FasterRCNNWrapper:
 
         """
 
-        # Now run the main loop. This does a forward pass through the RPN
+        # This does a forward pass through the RPN
         # and hands the proposed regions + features to the classifier
         for epoch in range(epochs):
 
@@ -262,12 +266,13 @@ class FasterRCNNWrapper:
                 if i % 100 == 0:
                     print(".", end="")
 
-                # Propose and then pool RoI
+                # Propose regions and compute features with the
+                # backbone associated with the classifier
                 roi = self.rpnwrapper.propose_regions(train_x)
-                roi = self.RoI_pool(roi)
-
-                # Compute features with the backbone associated with the classifier
                 features = self.backbone.extractor(train_x)
+
+                # Clip the RoI and pool the features
+                features, roi = self.RoI_pool(features, roi)
 
                 # Take a gradient step
                 self.classwrapper.training_step(
@@ -277,3 +282,21 @@ class FasterRCNNWrapper:
                 )
 
             print("")
+
+    def fine_tuning_loop(self, epochs=5):
+        """
+        Run a fine tuning loop.
+
+
+        """
+
+        pass
+
+    def predict(self, image):
+
+        """
+        Make predictions for an image.
+
+        """
+
+        pass
