@@ -83,7 +83,7 @@ class RPNWrapper:
         IoU_neg_threshold=0.1,
         IoU_pos_threshold=0.7,
         rpn_dropout=0.2,
-        n_roi=1000,
+        n_roi=100,
     ):
         """
         Initialize the RPN model for pretraining.

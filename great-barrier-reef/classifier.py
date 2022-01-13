@@ -7,7 +7,7 @@ class Classifier(tf.keras.Model):
     def __init__(
         self,
         n_proposals,
-        dense_layers=4096,
+        dense_layers=1024,
         n_classes=2,
         dropout=0.2,
     ):
@@ -65,8 +65,8 @@ class Classifier(tf.keras.Model):
 class ClassifierWrapper:
     def __init__(
         self,
-        n_proposals, 
-        dense_layers = 4096,
+        n_proposals,
+        dense_layers=4096,
         learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
             initial_learning_rate=1e-2, decay_steps=1000, decay_rate=0.9
         ),
@@ -88,7 +88,9 @@ class ClassifierWrapper:
 
         # Network and optimizer
         self.classifier = Classifier(
-            n_proposals, dropout=class_dropout, dense_layers=dense_layers,
+            n_proposals,
+            dropout=class_dropout,
+            dense_layers=dense_layers,
         )
         self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
 
@@ -113,3 +115,7 @@ class ClassifierWrapper:
         """
 
         self.classifier = tf.keras.models.load_model(filename)
+
+    def compute_loss(self, cls, bbox):
+        # placeholder
+        return tf.math.reduce_sum(cls) + tf.math.reduce_sum(bbox)
