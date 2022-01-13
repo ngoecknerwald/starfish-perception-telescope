@@ -229,6 +229,7 @@ class RoIPooling:
 
         feature_map, rois = x
 
+        # Use map_fn to iterate over RoI
         return tf.map_fn(
             partial(self._pool_roi, feature_map=feature_map), rois, dtype=tf.float32
         )
@@ -237,7 +238,7 @@ class RoIPooling:
         """
         Internal helper method.
 
-        Apply RoI pooling for a single image and a single RoI
+        Apply RoI pooling for a single image and a single RoI.
         """
 
         region = feature_map[roi[1] : roi[1] + roi[3], roi[0] : roi[0] + roi[1], :]
@@ -259,7 +260,12 @@ class RoIPooling:
             for i in range(self.pool_size[0])
         ]
 
-        def pool_area(x):
-            return tf.math.reduce_max(region[x[0] : x[2], x[1] : x[3], :], axis=[0, 1])
-
-        return tf.stack([[pool_area(x) for x in row] for row in areas])
+        return tf.stack(
+            [
+                [
+                    tf.math.reduce_max(region[x[0] : x[2], x[1] : x[3], :], axis=[0, 1])
+                    for x in row
+                ]
+                for row in areas
+            ]
+        )

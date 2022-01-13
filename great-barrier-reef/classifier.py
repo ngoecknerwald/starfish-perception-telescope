@@ -143,9 +143,6 @@ class ClassifierWrapper:
 
         """
 
-        # Cut the features down using the pooled roi
-        features_pool = None  # TODO fill this in
-
         with tf.GradientTape() as tape:
             cls, bbox = self.classifier(features_pool)
             loss = 0.0  # TODO fill this in

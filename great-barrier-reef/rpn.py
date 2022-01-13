@@ -130,9 +130,6 @@ class RPNWrapper:
         # Anchor box sizes
         self.build_anchor_boxes()
 
-        # Build the valid mask
-        self.build_valid_mask()
-
         # Build the model
         self.rpn = RPN(
             self.k,
@@ -170,68 +167,18 @@ class RPNWrapper:
             range(0, self.backbone.output_shape[0], self.anchor_stride),
         )
 
-    def validate_anchor_box(self, xx, yy, ww, hh):
-        """
-        Validate whether or not an anchor box in the extracted feature space
-        defined by xx, yy, ww, hh is valid. Note that xx,yy refers to the
-        bottom left corner of the box, not the middle.
-
-        Arguments:
-
-        xx : int
-            Pixel coordinate in the feature map.
-        yy : int
-            Pixel coordinate in the feature map.
-        ww : int
-            Pixel coordinate in the feature map.
-        hh : int
-            Pixel coordinate in the feature map.
-
-        Returns:
-
-        bool, whether or not this box is valid
-
-        """
-
-        # TODO vectorize this / possibly eliminate this method!
-
-        xxmin = int(xx)
-        xxmax = int(xx + ww)
-        yymin = int(yy)
-        yymax = int(yy + hh)
-
-        return (xxmin >= 0 and yymin >= 0) and (
-            xxmax < self.backbone.output_shape[1]
-            and yymax < self.backbone.output_shape[0]
-        )
-
-    def build_valid_mask(self):
-        """
-        Build a mask the same shape as the output of the RPN
-        indicating whether or not a proposal box crosses the image
-        boundary.
-
-        """
-
-        self.valid_mask = np.zeros(
-            (
-                len(range(0, self.backbone.output_shape[0], self.anchor_stride)),
-                len(range(0, self.backbone.output_shape[1], self.anchor_stride)),
-                self.k,
+        # Mask off invalid RoI that cross the image boundary
+        self.valid_mask = np.logical_and(
+            np.logical_and(
+                self.xx[:, :, np.newaxis] >= 0, self.yy[:, :, np.newaxis] >= 0
             ),
-            dtype=bool,
+            np.logical_and(
+                self.xx[:, :, np.newaxis] + self.ww[np.newaxis, np.newaxis, :]
+                < self.backbone.output_shape[1],
+                self.yy[:, :, np.newaxis] + self.hh[np.newaxis, np.newaxis, :]
+                < self.backbone.output_shape[0],
+            ),
         )
-
-        for ixx, xx in enumerate(
-            range(0, self.backbone.output_shape[1], self.anchor_stride)
-        ):
-            for iyy, yy in enumerate(
-                range(0, self.backbone.output_shape[0], self.anchor_stride)
-            ):
-                for ik, (hh, ww) in enumerate(zip(self.hh, self.ww)):
-                    self.valid_mask[iyy, ixx, ik] = self.validate_anchor_box(
-                        xx, yy, ww, hh
-                    )
 
     def ground_truth_IoU(self, annotations, xx, yy, hh, ww):
         """
@@ -258,9 +205,6 @@ class RPNWrapper:
             Ground truth IoU for each annotation.
 
         """
-
-        # In a "broken clock is right twice a day" sort of way this
-        # is now correct given the bounding box definition convention.
 
         # Coordinates and area of the proposed region
         x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
