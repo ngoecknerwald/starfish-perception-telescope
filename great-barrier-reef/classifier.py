@@ -1,6 +1,8 @@
 # Final classification network and training wrapper
 
 import tensorflow as tf
+import numpy as np
+import geometry
 
 
 class Classifier(tf.keras.Model):
@@ -105,6 +107,9 @@ class ClassifierWrapper:
         )
         self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
 
+        # Loss calculations
+        self.class_loss = tf.keras.losses.CategoricalCrossentropy()
+
     def save_classifier_state(self, filename):
         """
         Save the trained RPN state.
@@ -138,24 +143,21 @@ class ClassifierWrapper:
             Image convolved by the backbone.
         roi : tf.tensor
             Slice of features output by the RoI pooling operation
-        label : list of dict
+        label_x : list of dict
             Decoded grond truth labels for the training minibatch.
 
         """
 
-        # TODO
-
-        # Let's go back to the pooling operation and have it return a "bogus" bit
-        # attached to each RoI to indicate if that was real or the result of duplicating
-        # a low-interest RoI to fill out the second dimension of the tensor.
-
-        # Also, how are the interconnects in the dense layers created? In theory axis 0 should
+        # How are the interconnects in the dense layers created? In theory axis 0 should
         # be disconnected from the others, but does feature pixel (1, 4) in roi=3 talk to (2,3) in roi=7?
         # We should be careful about what the Flatten() on line 45 is actually doing.
 
         # Another option would be to pass individual images through the Classifier() instead of a minibatch
-        # stack of 4, which would make the Flatten() follow the intended behavior and treat the first axis
+        # stack of 4, which would make the Flatten() treat the first axis
         # (i.e. RoI) as independent minibatch examples
+
+        # The official faster R-CNN ties everything in an image together, perhaps to avoid duplicate proposals.
+        # We can revisit this later.
 
         # For the record the inputs look like
         # print(features.shape)
@@ -165,39 +167,66 @@ class ClassifierWrapper:
         # print(label_x)
         # [[{'x': 442, 'y': 202, 'width': 31, 'height': 26}], [], [], []]
 
+        # Preliminaries, assign region proposals to ground truth boxes
+        ground_truth_match = -1 * np.ones((features.shape[0], features.shape[0:1]))
+
+        # Work one image at a time, noting that this short circuits if there is no label
+        for i_image, image_labels in enumerate(label_x):
+
+            if len(image_labels) == 0:
+                continue
+
+            # Coordinates and area of the proposed region
+            x, y = self.backbone.feature_coords_to_image_coords(
+                roi[i_image, :, 1], roi[i_image, :, 0]
+            )
+            w, h = self.backbone.feature_coords_to_image_coords(
+                roi[i_image, :, 3], roi[i_image, :, 2]
+            )
+
+            IoUs = np.stack(
+                [
+                    geometry.calculate_IoU(
+                        np.asarray([x, y, w, h]),
+                        np.asarray(
+                            [
+                                label["x"],
+                                label["y"],
+                                label["width"],
+                                label["height"],
+                            ]
+                        ),
+                    )
+                    for i_label, label in enumerate(image_labels)
+                ]
+            )
+
+            # Iterate over positive labels to match them
+            for ilabel in range(len(image_labels)):
+
+                # Grab the RoI with the largest IoU
+                iroi = np.argmax(IoUs[ilabel, :])
+
+                # If that's a match, then make the assignment and
+                # ignore the RoI in subsequent matching
+                if IoUs[ilabel, iroi] > 1e-2:
+                    ground_truth_match[i_image, iroi] = ilabel
+                    IoUs[:, iroi] = 0.0
+
         with tf.GradientTape() as tape:
 
-            # Caveat that we might move this inside a for loop to make the Flatten behave the way we want(?)
-            cls, bbox = self.classifier(features)
+            # Classification layer forward pass
+            cls, bbox = self.classifier(features, training=True)
 
-            # print(cls.shape)
-            # (4, 20)
+            # Binary loss term, encoded the same way as the RPN classification
+            loss = self.class_loss(
+                np.hstack([ground_truth_match > 0, ground_truth_match < 0]).astype(int),
+                cls,
+            )
+
+            # TODO add the bounding box regression terms!
             # print(bbox.shape)
             # (4, 80)
-
-            # Pseudocode
-            #
-            # for i_image in range(4):
-            #
-            #    # Figure out which RoI to
-            #    ground_truth_match = -1 * np.ones(n_roi)
-            #
-            #    # Iterate over labels and match them to RoI
-            #    for i_label, label in enumerate(label_x[i_image]):
-            #         ground_truth_match[matches(RoIs, label)] = ilabel
-            #
-            #    # Now create the loss
-            #    for i_roi, roi in enumerate(roi):
-            #
-            #        if bogus_bit[roi]:
-            #            continue
-            #
-            #        cls += cross entropy term based on ground_truth_match[i_roi]
-            #
-            #        if ground_truth_match[i_roi] > 0
-            #            Add bounding box regression terms.
-
-            loss = tf.reduce_sum(cls) + tf.reduce_sum(bbox)
 
         # Compute gradients
         gradients = tape.gradient(loss, self.classifier.trainable_variables)
