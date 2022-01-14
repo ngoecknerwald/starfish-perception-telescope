@@ -143,18 +143,24 @@ class ClassifierWrapper:
 
         """
 
+        print("Inside ClassWrapper.training_step()")
+        print(features.shape)
+        print(roi.shape)
+        print(label_x)
+
         with tf.GradientTape() as tape:
-            cls, bbox = self.classifier(features_pool)
-            loss = 0.0  # TODO fill this in
+            cls, bbox = self.classifier(features)
+
+            print(cls.shape)
+            print(bbox.shape)
+            loss = tf.reduce_sum(cls) + tf.reduce_sum(bbox)
 
         # Compute gradients
         gradients = tape.gradient(loss, self.classifier.trainable_variables)
 
         # Apply gradients
-        self.classwrapperoptimizer.apply_gradients(
+        self.optimizer.apply_gradients(
             (grad, var)
-            for grad, var in zip(
-                gradients, self.classwrapper.classifier.trainable_variables
-            )
+            for grad, var in zip(gradients, self.classifier.trainable_variables)
             if grad is not None
         )
