@@ -274,11 +274,12 @@ class FasterRCNNWrapper:
                 # Clip the RoI and pool the features
                 features, roi = self.RoI_pool(features, roi)
 
-                # Take a gradient step
+                # Take a gradient step, TODO hand images down instead of features
                 self.classwrapper.training_step(
                     features,
                     roi,
                     [self.data_loader_full.decode_label(_label) for _label in label_x],
+                    update_backbone=False,
                 )
 
             print("")
@@ -290,13 +291,50 @@ class FasterRCNNWrapper:
 
         """
 
+        # Pseudocode
+
+        # Set self.backbone_rpn trainable=False <- the copy of the backbone fed into the RPN
+        # Set self.backbone trainable = True <- the copy of the backbone fed into the classifier
+
+        # for i in range(epochs):
+        #
+        #    # Fine tuning loop for the backbone + classifier
+        #    for i, (train_x, label_x) in enumerate(
+        #        self.data_loader_full.get_training()
+        #    ):
+        #
+        #        # forward mode
+        #        roi = self.rpnwrapper.propose_regions(train_x)
+        #        features = self.backbone.extractor(train_x)
+        #        features, roi = self.RoI_pool(features, roi)
+
+        #        # TODO we need to move the backbone call into the training step method for this to work
+        #        # TODO we also need to define "fine tuning" learning rates
+        #        self.classwrapper.training_step(
+        #            features,
+        #            roi,
+        #            [self.data_loader_full.decode_label(_label) for _label in label_x],
+        #            update_backbone=True,
+        #            fine_tuning=True
+        #        )
+        #
+        #
+        #     # Now copy over the improved backbone weights to the RPN
+        #     self.bacbone_rpn.network.set_weights(self.backbone.network.get_weights)
+        #
+        #     # TODO add a fine_tuning kwarg to the rpn training
+        #     self.rpnwrapper.train_rpn(
+        #        self.data_loader_full.get_training(), self.data_loader_full.decode_label, fine_tuning=True
+        #     )
+
         pass
 
-    def predict(self, image):
+    def predict(self, image, threshold):
 
         """
         Make predictions for an image.
 
         """
-
-        pass
+        return self.classwrapper.predict_classes(
+            image, self.rpnwrapper.propose_regions(image), positive_thresh=0.5
+        )

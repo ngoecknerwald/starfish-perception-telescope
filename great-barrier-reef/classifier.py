@@ -208,3 +208,8 @@ class ClassifierWrapper:
             for grad, var in zip(gradients, self.classifier.trainable_variables)
             if grad is not None
         )
+
+    def predict_classes(self, image, roi, positive_thresh=0.5):
+        """
+        Return predictions for an image.
+        """
