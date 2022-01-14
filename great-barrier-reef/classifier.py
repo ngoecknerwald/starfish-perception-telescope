@@ -143,16 +143,60 @@ class ClassifierWrapper:
 
         """
 
-        print("Inside ClassWrapper.training_step()")
-        print(features.shape)
-        print(roi.shape)
-        print(label_x)
+        # TODO
+
+        # Let's go back to the pooling operation and have it return a "bogus" bit
+        # attached to each RoI to indicate if that was real or the result of duplicating
+        # a low-interest RoI to fill out the second dimension of the tensor.
+
+        # Also, how are the interconnects in the dense layers created? In theory axis 0 should
+        # be disconnected from the others, but does feature pixel (1, 4) in roi=3 talk to (2,3) in roi=7?
+        # We should be careful about what the Flatten() on line 45 is actually doing.
+
+        # Another option would be to pass individual images through the Classifier() instead of a minibatch
+        # stack of 4, which would make the Flatten() follow the intended behavior and treat the first axis
+        # (i.e. RoI) as independent minibatch examples
+
+        # For the record the inputs look like
+        # print(features.shape)
+        # (4, 10, 4, 4, 1536)
+        # print(roi.shape)
+        # (4, 10, 4)
+        # print(label_x)
+        # [[{'x': 442, 'y': 202, 'width': 31, 'height': 26}], [], [], []]
 
         with tf.GradientTape() as tape:
+
+            # Caveat that we might move this inside a for loop to make the Flatten behave the way we want(?)
             cls, bbox = self.classifier(features)
 
-            print(cls.shape)
-            print(bbox.shape)
+            # print(cls.shape)
+            # (4, 20)
+            # print(bbox.shape)
+            # (4, 80)
+
+            # Pseudocode
+            #
+            # for i_image in range(4):
+            #
+            #    # Figure out which RoI to
+            #    ground_truth_match = -1 * np.ones(n_roi)
+            #
+            #    # Iterate over labels and match them to RoI
+            #    for i_label, label in enumerate(label_x[i_image]):
+            #         ground_truth_match[matches(RoIs, label)] = ilabel
+            #
+            #    # Now create the loss
+            #    for i_roi, roi in enumerate(roi):
+            #
+            #        if bogus_bit[roi]:
+            #            continue
+            #
+            #        cls += cross entropy term based on ground_truth_match[i_roi]
+            #
+            #        if ground_truth_match[i_roi] > 0
+            #            Add bounding box regression terms.
+
             loss = tf.reduce_sum(cls) + tf.reduce_sum(bbox)
 
         # Compute gradients
