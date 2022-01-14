@@ -170,12 +170,12 @@ class RPNWrapper:
         # Mask off invalid RoI that cross the image boundary
         self.valid_mask = np.logical_and(
             np.logical_and(
-                self.xx[:, :, np.newaxis] >= 0, self.yy[:, :, np.newaxis] >= 0
+                self.anchor_xx[:, :, np.newaxis] >= 0, self.anchor_yy[:, :, np.newaxis] >= 0
             ),
             np.logical_and(
-                self.xx[:, :, np.newaxis] + self.ww[np.newaxis, np.newaxis, :]
+                self.anchor_xx[:, :, np.newaxis] + self.ww[np.newaxis, np.newaxis, :]
                 < self.backbone.output_shape[1],
-                self.yy[:, :, np.newaxis] + self.hh[np.newaxis, np.newaxis, :]
+                self.anchor_yy[:, :, np.newaxis] + self.hh[np.newaxis, np.newaxis, :]
                 < self.backbone.output_shape[0],
             ),
         )
