@@ -127,7 +127,7 @@ class ClassifierWrapper:
 
         self.classifier = tf.keras.models.load_model(filename)
 
-    def training_step(self, features, roi, label_x):
+    def training_step(self, features, roi, label_x, update_backbone=False):
 
         """
         Take a training step with the classification network.

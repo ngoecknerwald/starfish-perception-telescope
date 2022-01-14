@@ -241,7 +241,7 @@ class RoIPooling:
         Apply RoI pooling for a single image and a single RoI.
         """
 
-        region = feature_map[roi[1] : roi[1] + roi[3], roi[0] : roi[0] + roi[1], :]
+        region = feature_map[roi[1] : roi[1] + roi[3], roi[0] : roi[0] + roi[2], :]
 
         # Divide the region into non overlapping areas
         h_step = tf.cast(region.shape[0] / self.pool_size[0], "int32")
