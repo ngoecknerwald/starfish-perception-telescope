@@ -159,8 +159,8 @@ class ClassifierWrapper:
         ground_truth_match = -1 * np.ones((roi.shape[0], roi.shape[1]), dtype=int)
 
         # Coordinates and area of the proposed region
-        x, y = self.backbone.feature_coords_to_image_coords(roi[:, :, 1], roi[:, :, 0])
-        w, h = self.backbone.feature_coords_to_image_coords(roi[:, :, 3], roi[:, :, 2])
+        x, y = self.backbone.feature_coords_to_image_coords(roi[:, :, 0], roi[:, :, 1])
+        w, h = self.backbone.feature_coords_to_image_coords(roi[:, :, 2], roi[:, :, 3])
 
         # Work one image at a time, noting that this short circuits if there is no label
         for i_image, image_labels in enumerate(label_x):
@@ -208,7 +208,6 @@ class ClassifierWrapper:
         )
 
         # Go through the region proposals and reject the ones not associated with a ground truth box
-        # Note that this calculation
         for i_image in range(roi.shape[0]):
             for i_roi in range(roi.shape[1]):
 
