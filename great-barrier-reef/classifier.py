@@ -168,7 +168,7 @@ class ClassifierWrapper:
         # [[{'x': 442, 'y': 202, 'width': 31, 'height': 26}], [], [], []]
 
         # Preliminaries, assign region proposals to ground truth boxes
-        ground_truth_match = -1 * np.ones((features.shape[0], features.shape[0:1]))
+        ground_truth_match = -1 * np.ones((features.shape[0], features.shape[1]))
 
         # Work one image at a time, noting that this short circuits if there is no label
         for i_image, image_labels in enumerate(label_x):
