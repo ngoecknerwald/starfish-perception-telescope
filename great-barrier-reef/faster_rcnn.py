@@ -208,7 +208,9 @@ class FasterRCNNWrapper:
 
         """
 
-        self.RoI_pool = roi_pooling.RoIPooling(self.backbone.output_shape, self.n_proposals, **roi_kwargs)
+        self.RoI_pool = roi_pooling.RoIPooling(
+            self.backbone.output_shape, self.n_proposals, **roi_kwargs
+        )
 
     def instantiate_classifier(self, classifier_weights, classifier_kwargs):
 
