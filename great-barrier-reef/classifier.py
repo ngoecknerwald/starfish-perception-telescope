@@ -1,6 +1,7 @@
 # Final classification network and training wrapper
 
 import tensorflow as tf
+import tensorflow_addons as tfa
 import numpy as np
 import geometry
 
@@ -50,7 +51,7 @@ class Classifier(tf.keras.Model):
         self.cls = tf.keras.layers.Dense(
             n_proposals * n_classes,
         )
-        self.bbox = tf.keras.layers.Dense(n_proposals * n_classes * 4)
+        self.bbox = tf.keras.layers.Dense(n_proposals * 4)
         self.dropout1 = tf.keras.layers.Dropout(self.dropout)
 
     def call(self, x, training=False):
@@ -109,6 +110,8 @@ class ClassifierWrapper:
 
         # Loss calculations
         self.class_loss = tf.keras.losses.CategoricalCrossentropy()
+        self.bbox_reg_l1 = tf.keras.losses.Huber()
+        self.bbox_reg_giou = tfa.losses.GIoULoss()
 
     def save_classifier_state(self, filename):
         """
@@ -132,7 +135,146 @@ class ClassifierWrapper:
 
         self.classifier = tf.keras.models.load_model(filename)
 
-    def training_step(self, features, roi, label_x, update_backbone=False):
+    def compute_loss(self, roi, label_x, cls, bbox, giou_rel_weight=1.0):
+        """
+        Compute the loss term for the full network.
+
+        Arguments:
+
+        roi : tf.Tensor or np.ndarray
+            Tensor of dimension [n_images, n_rois, xywh] encoding the position of the RoI.
+        label_x : list of dict
+            Decoded ground truth annotations.
+        cls : tf.Tensor
+            Classification score of dimension [n_images, n_rois * n_classes = 2]
+            encoded the same was as the RPN.
+        bbox : tf.Tensor
+            Bounding box regression of dimension [n_images, n_rois * 4]
+            encoded the same way as the RPN.
+
+        """
+
+        giou_weight = (giou_rel_weight) / (giou_rel_weight + 1.0)
+        l1_weight = 1.0 / (giou_rel_weight + 1.0)
+
+        # Preliminaries, assign region proposals to ground truth boxes
+        ground_truth_match = -1 * np.ones((features.shape[0], features.shape[1]))
+
+        # Coordinates and area of the proposed region
+        x, y = self.backbone.feature_coords_to_image_coords(roi[:, :, 1], roi[:, :, 0])
+        w, h = self.backbone.feature_coords_to_image_coords(roi[:, :, 3], roi[:, :, 2])
+
+        # Work one image at a time, noting that this short circuits if there is no label
+        for i_image, image_labels in enumerate(label_x):
+
+            if len(image_labels) == 0:
+                continue
+
+            IoUs = np.stack(
+                [
+                    geometry.calculate_IoU(
+                        np.asarray(
+                            [x[i_image, :], y[i_image, :], w[i_image, :], h[i_image, :]]
+                        ),
+                        np.asarray(
+                            [
+                                label["x"],
+                                label["y"],
+                                label["width"],
+                                label["height"],
+                            ]
+                        ),
+                    )
+                    for i_label, label in enumerate(image_labels)
+                ]
+            )
+
+            # Iterate over positive labels to match them
+            for ilabel in range(len(image_labels)):
+
+                # Grab the RoI with the largest IoU
+                iroi = np.argmax(IoUs[ilabel, :])
+
+                # If that's a match, then make the assignment and
+                # ignore the RoI in subsequent matching
+                if IoUs[ilabel, iroi] > 1e-2:
+                    ground_truth_match[i_image, iroi] = ilabel
+                    IoUs[:, iroi] = 0.0
+
+        del IoUs
+
+        # Binary loss term, encoded the same way as the RPN classification
+        loss = self.class_loss(
+            np.hstack([ground_truth_match > 0, ground_truth_match < 0]).astype(int),
+            cls,
+        )
+
+        # Go through the region proposals and reject the ones not associated with a ground truth box
+        # Note that this calculation
+        for i_image in range(features.shape[0]):
+            for i_roi in range(features.shape[1]):
+
+                if ground_truth_match[i_image, iroi] < 0:
+                    continue
+
+                # Bounding box coords and the ground truth
+                this_roi = label_x[i_image][ground_truth_match[i_image, iroi]]
+                this_x = x[i_image, i_roi]
+                this_y = y[i_image, i_roi]
+                this_w = w[i_image, i_roi]
+                this_h = h[i_image, i_roi]
+
+                # Huber loss, which AFAIK is the same as smooth L1
+                t_x_star = (this_x - this_roi["x"]) / (this_w)
+                t_y_star = (this_y - this_roi["y"]) / (this_h)
+                t_w_star = np.log(this_roi["width"] / (this_w))
+                t_h_star = np.log(this_roi["height"] / (this_h))
+
+                loss += l1_weight * self.bbox_reg_l1(
+                    [t_x_star, t_y_star, t_w_star, t_h_star],
+                    bbox[i_image, i_roi :: features.shape[1]],
+                )
+
+                # GIoU loss
+                x_pred = this_x - bbox[i_image, i_roi] * this_w
+                y_pred = this_y - bbox[i_image, i_roi + features.shape[1]] * this_h
+                w_pred = this_w * tf.math.exp(
+                    bbox[i_image, i_roi + 2 * features.shape[1]]
+                )
+                h_pred = this_h * tf.math.exp(
+                    bbox[i_image, i_roi + 3 * features.shape[1]]
+                )
+
+                giou_loss = giou_weight * self.bbox_reg_giou(
+                    tf.constant(
+                        [
+                            [
+                                this_roi["y"],
+                                this_roi["x"],
+                                this_roi["y"] + this_roi["height"],
+                                this_roi["x"] + this_roi["width"],
+                            ],
+                        ]
+                    ),
+                    [
+                        [
+                            y_pred,
+                            x_pred,
+                            y_pred + h_pred,
+                            x_pred + w_pred,
+                        ],
+                    ],
+                )
+
+                if tf.math.is_finite(giou_loss):
+                    loss += giou_loss
+
+    def training_step(
+        self,
+        features,
+        roi,
+        label_x,
+    ):
 
         """
         Take a training step with the classification network.
@@ -159,74 +301,11 @@ class ClassifierWrapper:
         # The official faster R-CNN ties everything in an image together, perhaps to avoid duplicate proposals.
         # We can revisit this later.
 
-        # For the record the inputs look like
-        # print(features.shape)
-        # (4, 10, 4, 4, 1536)
-        # print(roi.shape)
-        # (4, 10, 4)
-        # print(label_x)
-        # [[{'x': 442, 'y': 202, 'width': 31, 'height': 26}], [], [], []]
-
-        # Preliminaries, assign region proposals to ground truth boxes
-        ground_truth_match = -1 * np.ones((features.shape[0], features.shape[1]))
-
-        # Work one image at a time, noting that this short circuits if there is no label
-        for i_image, image_labels in enumerate(label_x):
-
-            if len(image_labels) == 0:
-                continue
-
-            # Coordinates and area of the proposed region
-            x, y = self.backbone.feature_coords_to_image_coords(
-                roi[i_image, :, 1], roi[i_image, :, 0]
-            )
-            w, h = self.backbone.feature_coords_to_image_coords(
-                roi[i_image, :, 3], roi[i_image, :, 2]
-            )
-
-            IoUs = np.stack(
-                [
-                    geometry.calculate_IoU(
-                        np.asarray([x, y, w, h]),
-                        np.asarray(
-                            [
-                                label["x"],
-                                label["y"],
-                                label["width"],
-                                label["height"],
-                            ]
-                        ),
-                    )
-                    for i_label, label in enumerate(image_labels)
-                ]
-            )
-
-            # Iterate over positive labels to match them
-            for ilabel in range(len(image_labels)):
-
-                # Grab the RoI with the largest IoU
-                iroi = np.argmax(IoUs[ilabel, :])
-
-                # If that's a match, then make the assignment and
-                # ignore the RoI in subsequent matching
-                if IoUs[ilabel, iroi] > 1e-2:
-                    ground_truth_match[i_image, iroi] = ilabel
-                    IoUs[:, iroi] = 0.0
-
+        # Classification layer forward pass
         with tf.GradientTape() as tape:
 
-            # Classification layer forward pass
             cls, bbox = self.classifier(features, training=True)
-
-            # Binary loss term, encoded the same way as the RPN classification
-            loss = self.class_loss(
-                np.hstack([ground_truth_match > 0, ground_truth_match < 0]).astype(int),
-                cls,
-            )
-
-            # TODO add the bounding box regression terms!
-            # print(bbox.shape)
-            # (4, 80)
+            loss = self.compute_loss(roi, label_x, cls, bbox)
 
         # Compute gradients
         gradients = tape.gradient(loss, self.classifier.trainable_variables)

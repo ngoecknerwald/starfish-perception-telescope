@@ -279,7 +279,6 @@ class FasterRCNNWrapper:
                     features,
                     roi,
                     [self.data_loader_full.decode_label(_label) for _label in label_x],
-                    update_backbone=False,
                 )
 
             print("")
