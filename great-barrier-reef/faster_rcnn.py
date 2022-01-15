@@ -59,7 +59,6 @@ class FasterRCNNWrapper:
         # Record for posterity
         self.input_shape = input_shape
         self.n_proposals = n_proposals
-        self.positive_threshold = positive_threshold
 
         # Instantiate data loading class
         self.instantiate_data_loaders(
