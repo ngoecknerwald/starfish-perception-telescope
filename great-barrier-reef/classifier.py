@@ -10,7 +10,7 @@ class Classifier(tf.keras.Model):
     def __init__(
         self,
         n_proposals,
-        dense_layers=1024,
+        dense_layers=512,
         n_classes=2,
         dropout=0.2,
     ):
@@ -70,7 +70,7 @@ class ClassifierWrapper:
         self,
         backbone,
         n_proposals,
-        dense_layers=1024,
+        dense_layers=512,
         learning_rate=1e-3,
         class_dropout=0.2,
     ):

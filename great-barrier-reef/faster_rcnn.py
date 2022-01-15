@@ -9,7 +9,7 @@ class FasterRCNNWrapper:
     def __init__(
         self,
         input_shape=(720, 1280, 3),
-        n_proposals=20,
+        n_proposals=10,
         datapath="/content",
         backbone_type="InceptionResNet-V2",
         backbone_weights="finetune",
@@ -208,7 +208,7 @@ class FasterRCNNWrapper:
 
         """
 
-        self.RoI_pool = roi_pooling.RoIPooling(self.backbone.output_shape, **roi_kwargs)
+        self.RoI_pool = roi_pooling.RoIPooling(self.backbone.output_shape, self.n_proposals, **roi_kwargs)
 
     def instantiate_classifier(self, classifier_weights, classifier_kwargs):
 

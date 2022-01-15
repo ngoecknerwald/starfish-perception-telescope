@@ -8,7 +8,7 @@ from functools import partial
 
 
 class RoIPooling:
-    def __init__(self, feature_size, n_regions=10, pool_size=(4, 4), IoU_threshold=0.4):
+    def __init__(self, feature_size, n_regions, pool_size=(3, 3), IoU_threshold=0.4):
         """
         Instantiate the RoI pooling layer.
 
