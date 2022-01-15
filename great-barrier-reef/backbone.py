@@ -105,7 +105,7 @@ class Backbone:
         validation_data=None,
         optimizer="adam",
         epochs=[2, 10],
-        learning_rates=[1e-3, 1e-6],
+        learning_rates=[1e-3, 1e-5],
         optimizer_kwargs={},
         fit_kwargs={},
         return_history=False,

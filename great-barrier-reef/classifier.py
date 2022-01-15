@@ -71,9 +71,7 @@ class ClassifierWrapper:
         backbone,
         n_proposals,
         dense_layers=1024,
-        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=1e-2, decay_steps=1000, decay_rate=0.9
-        ),
+        learning_rate=1e-3,
         class_dropout=0.2,
     ):
         """
@@ -106,7 +104,7 @@ class ClassifierWrapper:
             dropout=class_dropout,
             dense_layers=dense_layers,
         )
-        self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate)
 
         # Loss calculations
         self.class_loss = tf.keras.losses.CategoricalCrossentropy()
@@ -158,7 +156,7 @@ class ClassifierWrapper:
         l1_weight = 1.0 / (giou_rel_weight + 1.0)
 
         # Preliminaries, assign region proposals to ground truth boxes
-        ground_truth_match = -1 * np.ones((features.shape[0], features.shape[1]))
+        ground_truth_match = -1 * np.ones((roi.shape[0], roi.shape[1]), dtype=int)
 
         # Coordinates and area of the proposed region
         x, y = self.backbone.feature_coords_to_image_coords(roi[:, :, 1], roi[:, :, 0])
@@ -201,20 +199,20 @@ class ClassifierWrapper:
                     ground_truth_match[i_image, iroi] = ilabel
                     IoUs[:, iroi] = 0.0
 
-        del IoUs
+            del IoUs
 
         # Binary loss term, encoded the same way as the RPN classification
         loss = self.class_loss(
-            np.hstack([ground_truth_match > 0, ground_truth_match < 0]).astype(int),
+            np.hstack([ground_truth_match < 0, ground_truth_match > 0]).astype(int),
             cls,
         )
 
         # Go through the region proposals and reject the ones not associated with a ground truth box
         # Note that this calculation
-        for i_image in range(features.shape[0]):
-            for i_roi in range(features.shape[1]):
+        for i_image in range(roi.shape[0]):
+            for i_roi in range(roi.shape[1]):
 
-                if ground_truth_match[i_image, iroi] < 0:
+                if ground_truth_match[i_image, i_roi] < 0:
                     continue
 
                 # Bounding box coords and the ground truth
@@ -232,18 +230,14 @@ class ClassifierWrapper:
 
                 loss += l1_weight * self.bbox_reg_l1(
                     [t_x_star, t_y_star, t_w_star, t_h_star],
-                    bbox[i_image, i_roi :: features.shape[1]],
+                    bbox[i_image, i_roi :: roi.shape[1]],
                 )
 
                 # GIoU loss
                 x_pred = this_x - bbox[i_image, i_roi] * this_w
-                y_pred = this_y - bbox[i_image, i_roi + features.shape[1]] * this_h
-                w_pred = this_w * tf.math.exp(
-                    bbox[i_image, i_roi + 2 * features.shape[1]]
-                )
-                h_pred = this_h * tf.math.exp(
-                    bbox[i_image, i_roi + 3 * features.shape[1]]
-                )
+                y_pred = this_y - bbox[i_image, i_roi + roi.shape[1]] * this_h
+                w_pred = this_w * tf.math.exp(bbox[i_image, i_roi + 2 * roi.shape[1]])
+                h_pred = this_h * tf.math.exp(bbox[i_image, i_roi + 3 * roi.shape[1]])
 
                 giou_loss = giou_weight * self.bbox_reg_giou(
                     tf.constant(
@@ -268,6 +262,8 @@ class ClassifierWrapper:
 
                 if tf.math.is_finite(giou_loss):
                     loss += giou_loss
+
+        return loss
 
     def training_step(
         self,
@@ -317,7 +313,55 @@ class ClassifierWrapper:
             if grad is not None
         )
 
-    def predict_classes(self, image, roi, positive_thresh=0.5):
+    def predict_classes(self, features, roi):
         """
-        Return predictions for an image.
+        Run the final prediction to map
+
+        features : tf.tensor
+            RoI pooled features for a minibatch.
+        roi : tf.tensor
+            Slice of features output by the RoI pooling operation
+        label_x : list of dict
+            Decoded grond truth labels for the training minibatch.
+
         """
+
+        cls, bbox = self.classifier(features)
+
+        # Same as rpnwrapper.propose_regions()
+        objectness_l0 = cls[:, : features.shape[1]].numpy()
+        objectness_l1 = cls[:, features.shape[1] :].numpy()
+
+        # Need to unpack a bit and hit with softmax
+        objectness_l0 = objectness_l0.reshape((objectness_l0.shape[0], -1))
+        objectness_l1 = objectness_l1.reshape((objectness_l1.shape[0], -1))
+        objectness = tf.nn.softmax(
+            np.stack([objectness_l0, objectness_l1]), axis=0
+        ).numpy()
+
+        # Cut to the positive bit
+        objectness = objectness[1, :, :]
+
+        xx = roi[:, :, 0] - (bbox[:, : roi.shape[1]].numpy() * roi[:, :, 2])
+        yy = roi[:, :, 1] - (
+            bbox[:, roi.shape[1] : 2 * roi.shape[1]].numpy() * roi[:, :, 3]
+        )
+        ww = roi[:, :, 2] * np.exp(bbox[:, 2 * roi.shape[1] : 3 * roi.shape[1]].numpy())
+        hh = roi[:, :, 3] * np.exp(bbox[:, 3 * roi.shape[1] : 4 * roi.shape[1]].numpy())
+
+        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
+        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
+
+        return [
+            [
+                {
+                    "x": x[i_image, i_roi],
+                    "y": y[i_image, i_roi],
+                    "width": w[i_image, i_roi],
+                    "height": h[i_image, i_roi],
+                    "score": objectness[i_image, i_roi],
+                }
+                for i_roi in range(roi.shape[1])
+            ]
+            for i_image in range(roi.shape[0])
+        ]

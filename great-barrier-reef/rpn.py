@@ -73,12 +73,10 @@ class RPNWrapper:
         self,
         backbone,
         kernel_size=3,
-        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=1e-2, decay_steps=1000, decay_rate=0.9
-        ),
+        learning_rate=1e-3,
         anchor_stride=1,
         window_sizes=[2, 4],  # these must be divisible by 2
-        filters=768,
+        filters=1024,
         rpn_minibatch=16,
         IoU_neg_threshold=0.1,
         IoU_pos_threshold=0.7,
@@ -140,7 +138,7 @@ class RPNWrapper:
         )
 
         # Optimizer
-        self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
+        self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
 
         # Classification loss
         self.objectness = tf.keras.losses.CategoricalCrossentropy()

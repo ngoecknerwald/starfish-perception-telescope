@@ -9,7 +9,7 @@ class FasterRCNNWrapper:
     def __init__(
         self,
         input_shape=(720, 1280, 3),
-        n_proposals=10,
+        n_proposals=20,
         datapath="/content",
         backbone_type="InceptionResNet-V2",
         backbone_weights="finetune",
@@ -51,12 +51,15 @@ class FasterRCNNWrapper:
             Saved weights for the final classification network.
         classifier_kwargs : dict
             Optional keyword arguments passed to the Classifier wrapper.
+        finetuning_epochs : int
+            Number of epochs to fine-tune the backbone, RPN, and classifier.
 
         """
 
         # Record for posterity
         self.input_shape = input_shape
         self.n_proposals = n_proposals
+        self.positive_threshold = positive_threshold
 
         # Instantiate data loading class
         self.instantiate_data_loaders(
@@ -155,15 +158,17 @@ class FasterRCNNWrapper:
             print("Loading backbone weights from %s" % backbone_weights)
             self.backbone.load_backbone(backbone_weights)
 
+        # TODO enable this with the fine tuning loop.
+
         # Finally, we want to instantiate a copy of the backbone that the
         # RPN will use to propose regions. We will end up fine tuning the
         # backbone in conjunction with the classification layers and we
         # don't want the backbone changing under the RPN's feet.
 
         # Create a new backbone and copy weights over to make a deep copy
-        init_args = {"input_shape": None, "weights": None}
-        self.backbone_rpn = backbone.instantiate(backbone_type, init_args)
-        self.backbone_rpn.network.set_weights(self.backbone.network.get_weights())
+        # init_args = {"input_shape": None, "weights": None}
+        # self.backbone_rpn = backbone.instantiate(backbone_type, init_args)
+        # self.backbone_rpn.network.set_weights(self.backbone.network.get_weights())
 
     def instantiate_RPN(self, rpn_weights, rpn_kwargs):
         """
@@ -277,20 +282,37 @@ class FasterRCNNWrapper:
                 # Take a gradient step, TODO hand images down instead of features
                 self.classwrapper.training_step(
                     features,
-                    roi,
+                    roi.astype(float),
                     [self.data_loader_full.decode_label(_label) for _label in label_x],
                 )
 
             print("")
 
-    def fine_tuning_loop(self, epochs=5):
-        """
-        Run a fine tuning loop.
-
+    def predict(self, image):
 
         """
+        Make predictions for an image.
 
-        # Pseudocode
+        Arguments:
+
+        Image : tf.tensor
+            Minibatch of image(s) to register a prediction for.
+        """
+
+        # Usual invocation
+        roi = self.rpnwrapper.propose_regions(image)
+        features = self.backbone.extractor(image)
+        features, roi = self.RoI_pool(features, roi)
+
+        # Run the classifier in forward mode
+        return self.classwrapper.predict_classes(
+            features,
+            roi.astype(float),
+        )
+
+    def fine_tuning_loop(self):
+
+        pass
 
         # Set self.backbone_rpn trainable=False <- the copy of the backbone fed into the RPN
         # Set self.backbone trainable = True <- the copy of the backbone fed into the classifier
@@ -325,15 +347,3 @@ class FasterRCNNWrapper:
         #     self.rpnwrapper.train_rpn(
         #        self.data_loader_full.get_training(), self.data_loader_full.decode_label, fine_tuning=True
         #     )
-
-        pass
-
-    def predict(self, image, threshold):
-
-        """
-        Make predictions for an image.
-
-        """
-        return self.classwrapper.predict_classes(
-            image, self.rpnwrapper.propose_regions(image), positive_thresh=0.5
-        )
