@@ -76,7 +76,7 @@ class RPNWrapper:
         learning_rate=1e-3,
         anchor_stride=1,
         window_sizes=[2, 4],  # these must be divisible by 2
-        filters=1024,
+        filters=512,
         rpn_minibatch=16,
         IoU_neg_threshold=0.1,
         IoU_pos_threshold=0.7,
