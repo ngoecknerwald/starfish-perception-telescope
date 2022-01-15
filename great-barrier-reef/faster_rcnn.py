@@ -259,15 +259,15 @@ class FasterRCNNWrapper:
 
         """
 
+        training = self.data_loader_full.get_training()
+
         # This does a forward pass through the RPN
         # and hands the proposed regions + features to the classifier
         for epoch in range(epochs):
 
             print("Classifier training epoch %d" % epoch, end="")
 
-            for i, (train_x, label_x) in enumerate(
-                self.data_loader_full.get_training()
-            ):
+            for i, (train_x, label_x) in enumerate(training):
 
                 if i % 100 == 0:
                     print(".", end="")
@@ -280,7 +280,7 @@ class FasterRCNNWrapper:
                 # Clip the RoI and pool the features
                 features, roi = self.RoI_pool(features, roi)
 
-                # Take a gradient step, TODO hand images down instead of features
+                # Take a gradient step
                 self.classwrapper.training_step(
                     features,
                     roi.astype(float),
