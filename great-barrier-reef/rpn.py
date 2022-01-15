@@ -547,7 +547,13 @@ class RPNWrapper:
 
             print("")
 
-    def propose_regions(self, minibatch, image_coords=False, ignore_bbox=False):
+    def propose_regions(
+        self,
+        input_image_or_features,
+        image_coords=False,
+        ignore_bbox=False,
+        input_is_images=False,
+    ):
         """
         Run the RPN in forward mode on a minibatch of images.
         This method is used to train the final classification network
@@ -555,8 +561,8 @@ class RPNWrapper:
 
         Arguments:
 
-        minibatch : dataset minibatch
-            Set of image(s) to run through the network and extract features from.
+        input_image_or_features : dataset minibatch
+            Set of image(s) to run through the network. Either features or images.
         top : int
             Return this number of region proposals with the highest classification
             scores. If <= 0 then return everything.
@@ -567,6 +573,9 @@ class RPNWrapper:
         ignore_bbox : bool
             If True, ignore the bounding box regression and return unmodified proposal
             regions based on the classification score. Useful for debugging.
+        input_is_images : bool
+            Set to true to run the input through the backbone, otherwise assumes this
+            has already been done.
 
         Returns:
         [image_coords = False]
@@ -581,10 +590,10 @@ class RPNWrapper:
         # Run the feature extractor and the RPN in forward mode, adding an additional
         # image dimension if necessary
 
-        try:
-            features = self.backbone.extractor(minibatch)
-        except:
-            features = self.backbone.extractor(minibatch[None, :, :, :])
+        if input_is_images:
+            features = self.backbone.extractor(input_image_or_features)
+        else:
+            features = input_image_or_features
 
         # Run through the RPN
         cls, bbox = self.rpn(features)
