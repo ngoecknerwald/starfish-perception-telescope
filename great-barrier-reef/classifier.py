@@ -71,7 +71,9 @@ class ClassifierWrapper:
         backbone,
         n_proposals,
         dense_layers=512,
-        learning_rate=1e-3,
+        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=1e-3, decay_steps=1000, decay_rate=0.9
+        ),
         class_dropout=0.2,
     ):
         """
@@ -104,7 +106,7 @@ class ClassifierWrapper:
             dropout=class_dropout,
             dense_layers=dense_layers,
         )
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate)
+        self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
 
         # Loss calculations
         self.class_loss = tf.keras.losses.CategoricalCrossentropy()
@@ -211,56 +213,27 @@ class ClassifierWrapper:
         for i_image in range(roi.shape[0]):
             for i_roi in range(roi.shape[1]):
 
-                if ground_truth_match[i_image, i_roi] < 0:
-                    continue
+                if ground_truth_match[i_image, i_roi] > -1:
 
-                # Bounding box coords and the ground truth
-                this_roi = label_x[i_image][ground_truth_match[i_image, iroi]]
-                this_x = x[i_image, i_roi]
-                this_y = y[i_image, i_roi]
-                this_w = w[i_image, i_roi]
-                this_h = h[i_image, i_roi]
+                    # Bounding box coords and the ground truth
+                    this_roi = label_x[i_image][ground_truth_match[i_image, iroi]]
 
-                # Huber loss, which AFAIK is the same as smooth L1
-                t_x_star = (this_x - this_roi["x"]) / (this_w)
-                t_y_star = (this_y - this_roi["y"]) / (this_h)
-                t_w_star = np.log(this_roi["width"] / (this_w))
-                t_h_star = np.log(this_roi["height"] / (this_h))
+                    # Huber loss, which AFAIK is the same as smooth L1
+                    t_x_star = (x[i_image, i_roi] - this_roi["x"]) / (w[i_image, i_roi])
+                    t_y_star = (y[i_image, i_roi] - this_roi["y"]) / (h[i_image, i_roi])
+                    t_w_star = np.log(this_roi["width"] / (w[i_image, i_roi]))
+                    t_h_star = np.log(this_roi["height"] / (h[i_image, i_roi]))
 
-                loss += l1_weight * self.bbox_reg_l1(
+                else:
+                    t_x_star = 1.0
+                    t_y_star = 1.0
+                    t_w_star = 1.0
+                    t_h_star = 1.0
+
+                loss += self.bbox_reg_l1(
                     [t_x_star, t_y_star, t_w_star, t_h_star],
                     bbox[i_image, i_roi :: roi.shape[1]],
                 )
-
-                # GIoU loss
-                x_pred = this_x - bbox[i_image, i_roi] * this_w
-                y_pred = this_y - bbox[i_image, i_roi + roi.shape[1]] * this_h
-                w_pred = this_w * tf.math.exp(bbox[i_image, i_roi + 2 * roi.shape[1]])
-                h_pred = this_h * tf.math.exp(bbox[i_image, i_roi + 3 * roi.shape[1]])
-
-                giou_loss = giou_weight * self.bbox_reg_giou(
-                    tf.constant(
-                        [
-                            [
-                                this_roi["y"],
-                                this_roi["x"],
-                                this_roi["y"] + this_roi["height"],
-                                this_roi["x"] + this_roi["width"],
-                            ],
-                        ]
-                    ),
-                    [
-                        [
-                            y_pred,
-                            x_pred,
-                            y_pred + h_pred,
-                            x_pred + w_pred,
-                        ],
-                    ],
-                )
-
-                if tf.math.is_finite(giou_loss):
-                    loss += giou_loss
 
         return loss
 
