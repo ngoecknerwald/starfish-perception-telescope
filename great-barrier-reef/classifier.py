@@ -107,7 +107,7 @@ class ClassifierWrapper:
             dense_layers=dense_layers,
         )
         self.optimizer = tfa.optimizers.SGDW(
-            self.learning_rate, weight_decay=1e-5, momentum=0.9
+            learning_rate=self.learning_rate, weight_decay=1e-5, momentum=0.9
         )
 
         # Loss calculations
