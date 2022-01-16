@@ -135,7 +135,7 @@ class ClassifierWrapper:
 
         self.classifier = tf.keras.models.load_model(filename)
 
-    def compute_loss(self, roi, label_x, cls, bbox, giou_rel_weight=1.0):
+    def compute_loss(self, roi, label_x, cls, bbox):
         """
         Compute the loss term for the full network.
 
@@ -154,8 +154,9 @@ class ClassifierWrapper:
 
         """
 
-        giou_weight = (giou_rel_weight) / (giou_rel_weight + 1.0)
-        l1_weight = 1.0 / (giou_rel_weight + 1.0)
+        # Stop the training if we hit nan values
+        if np.any(np.logical_not(np.isfinite(cls.numpy()))):
+            raise ValueError("NaN detected in the classifier, aborting training.")
 
         # Preliminaries, assign region proposals to ground truth boxes
         ground_truth_match = -1 * np.ones((roi.shape[0], roi.shape[1]), dtype=int)
