@@ -225,10 +225,10 @@ class ClassifierWrapper:
                     t_h_star = np.log(this_roi["height"] / (h[i_image, i_roi]))
 
                 else:
-                    t_x_star = 1.0
-                    t_y_star = 1.0
-                    t_w_star = 1.0
-                    t_h_star = 1.0
+                    t_x_star = 0.0
+                    t_y_star = 0.0
+                    t_w_star = 0.0
+                    t_h_star = 0.0
 
                 loss += self.bbox_reg_l1(
                     [t_x_star, t_y_star, t_w_star, t_h_star],

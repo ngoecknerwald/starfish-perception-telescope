@@ -411,10 +411,10 @@ class RPNWrapper:
                 t_w_star = np.log(roi[4]["width"] / (w))
                 t_h_star = np.log(roi[4]["height"] / (h))
             else:
-                t_x_star = 1.0
-                t_y_star = 1.0
-                t_w_star = 1.0
-                t_h_star = 1.0
+                t_x_star = 0.0
+                t_y_star = 0.0
+                t_w_star = 0.0
+                t_h_star = 0.0
 
             # Huber loss, which AFAIK is the same as smooth L1
             loss += self.bbox_reg_l1(
