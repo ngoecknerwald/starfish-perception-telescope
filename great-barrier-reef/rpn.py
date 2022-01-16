@@ -140,7 +140,9 @@ class RPNWrapper:
         )
 
         # Optimizer
-        self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
+        self.optimizer = tfa.optimizers.SGDW(
+            learning_rate=self.learning_rate, weight_decay=1e-5, momentum=0.9
+        )
 
         # Classification loss
         self.objectness = tf.keras.losses.CategoricalCrossentropy()
@@ -389,41 +391,37 @@ class RPNWrapper:
             raise ValueError("NaN detected in the RPN, aborting training.")
 
         # Start with an L2 regularization
-        loss = tf.nn.l2_loss(cls)
-        loss += tf.nn.l2_loss(bbox)
+        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, dtype=tf.float32))
+        loss += tf.nn.l2_loss(bbox) / tf.size(bbox, dtype=tf.float32)
         loss += self.objectness(ground_truth, cls_select)
 
         # Now add the bounding box term
         for roi in rois:
 
-            # Refer the corners of the bounding box back to image space
-            # Note that this assumes said mapping is linear.
-            x, y = self.backbone.feature_coords_to_image_coords(
-                self.anchor_xx[roi[1], roi[2]],
-                self.anchor_yy[roi[1], roi[2]],
-            )
-            w, h = self.backbone.feature_coords_to_image_coords(
-                self.ww[roi[3]],
-                self.hh[roi[3]],
-            )
-
             # Compare anchor to ground truth
             if "x" in roi[4].keys():
+
+                # Refer the corners of the bounding box back to image space
+                # Note that this assumes said mapping is linear.
+                x, y = self.backbone.feature_coords_to_image_coords(
+                    self.anchor_xx[roi[1], roi[2]],
+                    self.anchor_yy[roi[1], roi[2]],
+                )
+                w, h = self.backbone.feature_coords_to_image_coords(
+                    self.ww[roi[3]],
+                    self.hh[roi[3]],
+                )
+
                 t_x_star = (x - roi[4]["x"]) / (w)
                 t_y_star = (y - roi[4]["y"]) / (h)
                 t_w_star = geometry.safe_log(roi[4]["width"] / (w))
                 t_h_star = geometry.safe_log(roi[4]["height"] / (h))
-            else:
-                t_x_star = 0.0
-                t_y_star = 0.0
-                t_w_star = 0.0
-                t_h_star = 0.0
 
-            # Huber loss, which AFAIK is the same as smooth L1
-            loss += self.bbox_reg_l1(
-                [t_x_star, t_y_star, t_w_star, t_h_star],
-                bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
-            )
+                # Huber loss, which AFAIK is the same as smooth L1
+                loss += self.bbox_reg_l1(
+                    [t_x_star, t_y_star, t_w_star, t_h_star],
+                    bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
+                )
 
         return loss
 

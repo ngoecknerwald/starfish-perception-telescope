@@ -106,7 +106,9 @@ class ClassifierWrapper:
             dropout=class_dropout,
             dense_layers=dense_layers,
         )
-        self.optimizer = tf.keras.optimizers.SGD(self.learning_rate, momentum=0.9)
+        self.optimizer = tfa.optimizers.SGDW(
+            self.learning_rate, weight_decay=1e-5, momentum=0.9
+        )
 
         # Loss calculations
         self.class_loss = tf.keras.losses.CategoricalCrossentropy()
@@ -205,8 +207,8 @@ class ClassifierWrapper:
             del IoUs
 
         # First the regularization term
-        loss = tf.nn.l2_loss(cls)
-        loss += tf.nn.l2_loss(bbox)
+        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, dtype=tf.float32))
+        loss += tf.nn.l2_loss(bbox) / tf.size(bbox, dtype=tf.float32)
 
         # Binary loss term, encoded the same way as the RPN classification
         loss += self.class_loss(
@@ -233,16 +235,10 @@ class ClassifierWrapper:
                         this_roi["height"] / (h[i_image, i_roi])
                     )
 
-                else:
-                    t_x_star = 0.0
-                    t_y_star = 0.0
-                    t_w_star = 0.0
-                    t_h_star = 0.0
-
-                loss += self.bbox_reg_l1(
-                    [t_x_star, t_y_star, t_w_star, t_h_star],
-                    bbox[i_image, i_roi :: roi.shape[1]],
-                )
+                    loss += self.bbox_reg_l1(
+                        [t_x_star, t_y_star, t_w_star, t_h_star],
+                        bbox[i_image, i_roi :: roi.shape[1]],
+                    )
 
         return loss
 
