@@ -141,7 +141,7 @@ class RPNWrapper:
 
         # Optimizer
         self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=self.learning_rate, weight_decay=1e-5, momentum=0.9
+            learning_rate=self.learning_rate, weight_decay=1e-4, momentum=0.9
         )
 
         # Classification loss

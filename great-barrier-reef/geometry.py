@@ -2,6 +2,7 @@
 # that don't belong in any specific class
 
 import numpy as np
+import tensorflow as tf
 
 
 def calculate_IoU(a, b):

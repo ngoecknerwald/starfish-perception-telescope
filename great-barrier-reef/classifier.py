@@ -47,7 +47,10 @@ class Classifier(tf.keras.Model):
         # Instantiate network components
         self.flatten = tf.keras.layers.Flatten()
         self.dense1 = tf.keras.layers.Dense(self.dense_layers[0], activation="relu")
-        self.dense2 = tf.keras.layers.Dense(self.dense_layers[1], activation="relu")
+
+        # TODO we need to figure out why this layer is causing the loss term to blow up.
+        # self.dense2 = tf.keras.layers.Dense(self.dense_layers[1], activation="relu")
+
         self.cls = tf.keras.layers.Dense(
             n_proposals * n_classes,
         )
@@ -57,7 +60,7 @@ class Classifier(tf.keras.Model):
     def call(self, x, training=False):
         x = self.flatten(x)
         x = self.dense1(x)
-        x = self.dense2(x)
+        # x = self.dense2(x)
         if training:
             x = self.dropout1(x)
         cls = self.cls(x)
@@ -107,7 +110,7 @@ class ClassifierWrapper:
             dense_layers=dense_layers,
         )
         self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=self.learning_rate, weight_decay=1e-5, momentum=0.9
+            learning_rate=self.learning_rate, weight_decay=1e-4, momentum=0.9
         )
 
         # Loss calculations
