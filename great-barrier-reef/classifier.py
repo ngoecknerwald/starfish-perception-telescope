@@ -207,8 +207,8 @@ class ClassifierWrapper:
             del IoUs
 
         # First the regularization term
-        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, dtype=tf.float32))
-        loss += tf.nn.l2_loss(bbox) / tf.size(bbox, dtype=tf.float32)
+        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
+        loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
 
         # Binary loss term, encoded the same way as the RPN classification
         loss += self.class_loss(

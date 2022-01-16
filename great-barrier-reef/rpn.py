@@ -391,8 +391,8 @@ class RPNWrapper:
             raise ValueError("NaN detected in the RPN, aborting training.")
 
         # Start with an L2 regularization
-        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, dtype=tf.float32))
-        loss += tf.nn.l2_loss(bbox) / tf.size(bbox, dtype=tf.float32)
+        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
+        loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
         loss += self.objectness(ground_truth, cls_select)
 
         # Now add the bounding box term
