@@ -32,3 +32,37 @@ def calculate_IoU(a, b):
     overlap = (a[2] * a[3]) + (b[2] * b[3]) - intersect
 
     return intersect / overlap
+
+
+def safe_exp(x):
+
+    """
+    Exponential stitched to a linear function.
+    Implemented to make the bounding box regresion
+    wear a helmet when riding a bike. Returns:
+
+    e^x : x < 0
+    x + 1 : x >= 0
+
+    Arguments:
+
+    x : np.ndarray, float or tf.tensor
+        Input variables.
+
+    """
+
+    return tf.nn.elu(x) + 1.0
+
+
+def safe_log(x):
+
+    """
+    Inverse of the safe_exp() function. Returns:
+
+    log(x) : x < 1
+    x - 1. x >= 1
+    """
+
+    if x < 1.0:
+        return np.log(x)
+    return x - 1.0

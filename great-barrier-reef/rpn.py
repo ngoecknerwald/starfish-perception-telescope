@@ -388,7 +388,10 @@ class RPNWrapper:
         if np.any(np.logical_not(np.isfinite(cls_select.numpy()))):
             raise ValueError("NaN detected in the RPN, aborting training.")
 
-        loss = self.objectness(ground_truth, cls_select)
+        # Start with an L2 regularization
+        loss = tf.nn.l2_loss(cls)
+        loss += tf.nn.l2_loss(bbox)
+        loss += self.objectness(ground_truth, cls_select)
 
         # Now add the bounding box term
         for roi in rois:
@@ -408,8 +411,8 @@ class RPNWrapper:
             if "x" in roi[4].keys():
                 t_x_star = (x - roi[4]["x"]) / (w)
                 t_y_star = (y - roi[4]["y"]) / (h)
-                t_w_star = np.log(roi[4]["width"] / (w))
-                t_h_star = np.log(roi[4]["height"] / (h))
+                t_w_star = geometry.safe_log(roi[4]["width"] / (w))
+                t_h_star = geometry.safe_log(roi[4]["height"] / (h))
             else:
                 t_x_star = 0.0
                 t_y_star = 0.0
@@ -586,11 +589,13 @@ class RPNWrapper:
             bbox[:, :, :, self.k : 2 * self.k].numpy()
             * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
         )
-        ww = self.ww[np.newaxis, np.newaxis, np.newaxis, :] * np.exp(
-            bbox[:, :, :, 2 * self.k : 3 * self.k].numpy()
+        ww = (
+            self.ww[np.newaxis, np.newaxis, np.newaxis, :]
+            * geometry.safe_exp(bbox[:, :, :, 2 * self.k : 3 * self.k]).numpy()
         )
-        hh = self.hh[np.newaxis, np.newaxis, np.newaxis, :] * np.exp(
-            bbox[:, :, :, 3 * self.k : 4 * self.k].numpy()
+        hh = (
+            self.hh[np.newaxis, np.newaxis, np.newaxis, :]
+            * geometry.safe_exp(bbox[:, :, :, 3 * self.k : 4 * self.k]).numpy()
         )
 
         # Reshape to flatten along proposal dimension within an image

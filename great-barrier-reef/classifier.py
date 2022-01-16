@@ -204,8 +204,12 @@ class ClassifierWrapper:
 
             del IoUs
 
+        # First the regularization term
+        loss = tf.nn.l2_loss(cls)
+        loss += tf.nn.l2_loss(bbox)
+
         # Binary loss term, encoded the same way as the RPN classification
-        loss = self.class_loss(
+        loss += self.class_loss(
             np.hstack([ground_truth_match < 0, ground_truth_match > 0]).astype(int),
             cls,
         )
@@ -222,8 +226,12 @@ class ClassifierWrapper:
                     # Huber loss, which AFAIK is the same as smooth L1
                     t_x_star = (x[i_image, i_roi] - this_roi["x"]) / (w[i_image, i_roi])
                     t_y_star = (y[i_image, i_roi] - this_roi["y"]) / (h[i_image, i_roi])
-                    t_w_star = np.log(this_roi["width"] / (w[i_image, i_roi]))
-                    t_h_star = np.log(this_roi["height"] / (h[i_image, i_roi]))
+                    t_w_star = geometry.safe_log(
+                        this_roi["width"] / (w[i_image, i_roi])
+                    )
+                    t_h_star = geometry.safe_log(
+                        this_roi["height"] / (h[i_image, i_roi])
+                    )
 
                 else:
                     t_x_star = 0.0
@@ -319,8 +327,14 @@ class ClassifierWrapper:
         yy = roi[:, :, 1] - (
             bbox[:, roi.shape[1] : 2 * roi.shape[1]].numpy() * roi[:, :, 3]
         )
-        ww = roi[:, :, 2] * np.exp(bbox[:, 2 * roi.shape[1] : 3 * roi.shape[1]].numpy())
-        hh = roi[:, :, 3] * np.exp(bbox[:, 3 * roi.shape[1] : 4 * roi.shape[1]].numpy())
+        ww = (
+            roi[:, :, 2]
+            * geometry.safe_exp(bbox[:, 2 * roi.shape[1] : 3 * roi.shape[1]]).numpy()
+        )
+        hh = (
+            roi[:, :, 3]
+            * geometry.safe_exp(bbox[:, 3 * roi.shape[1] : 4 * roi.shape[1]]).numpy()
+        )
 
         x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
         w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
