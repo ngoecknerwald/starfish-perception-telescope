@@ -158,8 +158,8 @@ class RPNWrapper:
 
         # Make the list of window sizes
         hh, ww = np.meshgrid(self.window_sizes, self.window_sizes)
-        self.hh = hh.reshape(-1)
-        self.ww = ww.reshape(-1)
+        self.hh = tf.constant(hh.reshape(-1))
+        self.ww = tf.constant(ww.reshape(-1))
         self.k = len(self.window_sizes) ** 2
 
         # Need to refer the anchor points back to the feature space
@@ -167,6 +167,8 @@ class RPNWrapper:
             range(0, self.backbone.output_shape[1], self.anchor_stride),
             range(0, self.backbone.output_shape[0], self.anchor_stride),
         )
+        self.anchor_xx = tf.constant(self.anchor_xx)
+        self.anchor_yy = tf.constant(self.anchor_yy)
 
         # Mask off invalid RoI that cross the image boundary
         self.valid_mask = np.logical_and(
@@ -502,6 +504,7 @@ class RPNWrapper:
 
             print("")
 
+    @tf.function
     def propose_regions(
         self,
         input_image_or_features,
@@ -559,53 +562,52 @@ class RPNWrapper:
 
         # Dimension is image, iyy, ixx, ik were ik is
         # [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...]
-        objectness_l0 = cls[:, :, :, : self.k].numpy()
-        objectness_l1 = cls[:, :, :, self.k :].numpy()
+        objectness_l0 = cls[:, :, :, : self.k]
+        objectness_l1 = cls[:, :, :, self.k :]
 
         # Need to unpack a bit and hit with softmax
-        objectness_l0 = objectness_l0.reshape((objectness_l0.shape[0], -1))
-        objectness_l1 = objectness_l1.reshape((objectness_l1.shape[0], -1))
+        objectness_l0 = tf.reshape(objectness_l0, (objectness_l0.shape[0], -1))
+        objectness_l1 = tf.reshape(objectness_l1, (objectness_l1.shape[0], -1))
         objectness = tf.nn.softmax(
-            np.stack([objectness_l0, objectness_l1]), axis=0
-        ).numpy()
+            tf.stack([objectness_l0, objectness_l1]), axis=0
+        )
 
         # Cut to the one-hot bit
         objectness = objectness[1, :, :]
 
         # Remove the invalid bounding boxes
-        objectness *= self.valid_mask.reshape(-1)[np.newaxis, :]
+        objectness = tf.math.multiply(objectness, self.valid_mask.reshape(-1)[np.newaxis, :])
 
         # Dimension for bbox is same as cls but ik follows
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
         # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         # Now cue the infinite magic numpy indexing
         xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] - (
-            bbox[:, :, :, : self.k].numpy()
+            bbox[:, :, :, : self.k]
             * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
         )
         yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] - (
-            bbox[:, :, :, self.k : 2 * self.k].numpy()
+            bbox[:, :, :, self.k : 2 * self.k]
             * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
         )
         ww = (
             self.ww[np.newaxis, np.newaxis, np.newaxis, :]
-            * geometry.safe_exp(bbox[:, :, :, 2 * self.k : 3 * self.k]).numpy()
+            * geometry.safe_exp(bbox[:, :, :, 2 * self.k : 3 * self.k])
         )
         hh = (
             self.hh[np.newaxis, np.newaxis, np.newaxis, :]
-            * geometry.safe_exp(bbox[:, :, :, 3 * self.k : 4 * self.k]).numpy()
+            * geometry.safe_exp(bbox[:, :, :, 3 * self.k : 4 * self.k])
         )
 
         # Reshape to flatten along proposal dimension within an image
-        argsort = np.argsort(objectness, axis=-1)
-        argsort = argsort[:, ::-1]
+        argsort = tf.argsort(objectness, axis=-1, direction='DESCENDING')
 
         # If no limit requested, just return everything
         if self.n_roi < 1:
             self.n_roi = objectness.shape[1]
 
         def batch_sort(arr, inds, n):
-            return np.take_along_axis(arr.reshape(arr.shape[0], -1), inds, axis=-1)[
+            return tf.gather(tf.reshape(arr, (arr.shape[0], -1)), inds, batch_dims=1)[
                 :, :n
             ]
 
