@@ -199,13 +199,13 @@ class ClassifierWrapper:
             for ilabel in range(len(image_labels)):
 
                 # Grab the RoI with the largest IoU
-                iroi = np.argmax(IoUs[ilabel, :])
+                i_roi = np.argmax(IoUs[ilabel, :])
 
                 # If that's a match, then make the assignment and
                 # ignore the RoI in subsequent matching
-                if IoUs[ilabel, iroi] > 1e-2:
-                    ground_truth_match[i_image, iroi] = ilabel
-                    IoUs[:, iroi] = 0.0
+                if IoUs[ilabel, i_roi] > 1e-2:
+                    ground_truth_match[i_image, i_roi] = ilabel
+                    IoUs[:, i_roi] = 0.0
 
             del IoUs
 
@@ -226,7 +226,7 @@ class ClassifierWrapper:
                 if ground_truth_match[i_image, i_roi] > -1:
 
                     # Bounding box coords and the ground truth
-                    this_roi = label_x[i_image][ground_truth_match[i_image, iroi]]
+                    this_roi = label_x[i_image][ground_truth_match[i_image, i_roi]]
 
                     # Huber loss, which AFAIK is the same as smooth L1
                     t_x_star = (x[i_image, i_roi] - this_roi["x"]) / (w[i_image, i_roi])
