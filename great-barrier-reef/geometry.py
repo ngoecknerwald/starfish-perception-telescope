@@ -65,5 +65,5 @@ def safe_log(x):
     """
 
     if x < 1.0:
-        return np.log(x)
+        return tf.math.log(x)
     return x - 1.0

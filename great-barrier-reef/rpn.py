@@ -582,20 +582,20 @@ class RPNWrapper:
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
         # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         # Now cue the infinite magic numpy indexing
-        xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] - (
+        xx = tf.cast(self.anchor_xx[np.newaxis, :, :, np.newaxis], 'float32') - (
             bbox[:, :, :, : self.k]
-            * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
+            * tf.cast(self.ww[np.newaxis, np.newaxis, np.newaxis, :], 'float32')
         )
-        yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] - (
+        yy = tf.cast(self.anchor_yy[np.newaxis, :, :, np.newaxis], 'float32') - (
             bbox[:, :, :, self.k : 2 * self.k]
-            * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
+            * tf.cast(self.hh[np.newaxis, np.newaxis, np.newaxis, :], 'float32')
         )
         ww = (
-            self.ww[np.newaxis, np.newaxis, np.newaxis, :]
+            tf.cast(self.ww[np.newaxis, np.newaxis, np.newaxis, :], 'float32')
             * geometry.safe_exp(bbox[:, :, :, 2 * self.k : 3 * self.k])
         )
         hh = (
-            self.hh[np.newaxis, np.newaxis, np.newaxis, :]
+            tf.cast(self.hh[np.newaxis, np.newaxis, np.newaxis, :], 'float32')
             * geometry.safe_exp(bbox[:, :, :, 3 * self.k : 4 * self.k])
         )
 
