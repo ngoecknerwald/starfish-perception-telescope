@@ -45,12 +45,11 @@ class Classifier(tf.keras.Model):
         self.dropout = dropout
 
         # Instantiate network components
+        self.conv1 = tf.keras.layers.Conv2D(
+            self.dense_layers[0], (1, 1), activation="relu"
+        )
         self.flatten = tf.keras.layers.Flatten()
-        self.dense1 = tf.keras.layers.Dense(self.dense_layers[0], activation="relu")
-
-        # TODO we need to figure out why this layer is causing the loss term to blow up.
-        # self.dense2 = tf.keras.layers.Dense(self.dense_layers[1], activation="relu")
-
+        self.dense1 = tf.keras.layers.Dense(self.dense_layers[1], activation="relu")
         self.cls = tf.keras.layers.Dense(
             n_proposals * n_classes,
         )
@@ -58,9 +57,9 @@ class Classifier(tf.keras.Model):
         self.dropout1 = tf.keras.layers.Dropout(self.dropout)
 
     def call(self, x, training=False):
+        x = self.conv1(x)
         x = self.flatten(x)
         x = self.dense1(x)
-        # x = self.dense2(x)
         if training:
             x = self.dropout1(x)
         cls = self.cls(x)
