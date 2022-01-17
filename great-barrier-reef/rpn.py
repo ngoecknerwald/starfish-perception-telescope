@@ -73,7 +73,9 @@ class RPNWrapper:
         self,
         backbone,
         kernel_size=3,
-        learning_rate=1e-3,
+        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=1e-3, decay_steps=1000, decay_rate=0.9
+        ),
         anchor_stride=1,
         window_sizes=[2, 4],  # these must be divisible by 2
         filters=512,
@@ -138,14 +140,15 @@ class RPNWrapper:
         )
 
         # Optimizer
-        self.optimizer = tf.keras.optimizers.Adam(self.learning_rate)
+        self.optimizer = tfa.optimizers.SGDW(
+            learning_rate=self.learning_rate, weight_decay=1e-4, momentum=0.9
+        )
 
         # Classification loss
         self.objectness = tf.keras.losses.CategoricalCrossentropy()
 
         # Regression loss terms
         self.bbox_reg_l1 = tf.keras.losses.Huber()
-        self.bbox_reg_giou = tfa.losses.GIoULoss()
 
     def build_anchor_boxes(self):
         """
@@ -355,7 +358,7 @@ class RPNWrapper:
 
         return rois
 
-    def compute_loss(self, cls, bbox, rois, giou_rel_weight=1.0):
+    def compute_loss(self, cls, bbox, rois):
 
         """
         Compute the loss function for a set of classification
@@ -375,16 +378,7 @@ class RPNWrapper:
             ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         rois : list or RoIs, [i, iyy, ixx, ik, {<label or empty>}]
             Output of accumulate_roi(), see training_step for use case.
-        giou_rel_weight : float
-            Relative weight in the cost function from generalized IoU versus L1 loss
-            using https://www.tensorflow.org/addons/api_docs/python/tfa/losses/GIoULoss.
-            Setting this to 0 uses only the smooth L1 loss on the bounding box regression.
-            Setting this to a large number uses only the generalized IoU loss.
         """
-
-        # Compute loss weight fractions
-        giou_weight = (giou_rel_weight) / (giou_rel_weight + 1.0)
-        l1_weight = 1.0 / (giou_rel_weight + 1.0)
 
         # First, compute the categorical cross entropy objectness loss
         cls_select = tf.nn.softmax(
@@ -396,77 +390,38 @@ class RPNWrapper:
         if np.any(np.logical_not(np.isfinite(cls_select.numpy()))):
             raise ValueError("NaN detected in the RPN, aborting training.")
 
-        loss = self.objectness(ground_truth, cls_select)
+        # Start with an L2 regularization
+        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
+        loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
+        loss += self.objectness(ground_truth, cls_select)
 
         # Now add the bounding box term
         for roi in rois:
 
-            # Short circuit if there is no ground truth
-            if "x" not in roi[4].keys():
-                continue
-
-            # Refer the corners of the bounding box back to image space
-            # Note that this assumes said mapping is linear.
-            x, y = self.backbone.feature_coords_to_image_coords(
-                self.anchor_xx[roi[1], roi[2]],
-                self.anchor_yy[roi[1], roi[2]],
-            )
-            w, h = self.backbone.feature_coords_to_image_coords(
-                self.ww[roi[3]],
-                self.hh[roi[3]],
-            )
-
             # Compare anchor to ground truth
-            t_x_star = (x - roi[4]["x"]) / (w)
-            t_y_star = (y - roi[4]["y"]) / (h)
-            t_w_star = np.log(roi[4]["width"] / (w))
-            t_h_star = np.log(roi[4]["height"] / (h))
+            if "x" in roi[4].keys():
 
-            # Huber loss, which AFAIK is the same as smooth L1
-            loss += l1_weight * self.bbox_reg_l1(
-                [t_x_star, t_y_star, t_w_star, t_h_star],
-                bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
-            )
+                # Refer the corners of the bounding box back to image space
+                # Note that this assumes said mapping is linear.
+                x, y = self.backbone.feature_coords_to_image_coords(
+                    self.anchor_xx[roi[1], roi[2]],
+                    self.anchor_yy[roi[1], roi[2]],
+                )
+                w, h = self.backbone.feature_coords_to_image_coords(
+                    self.ww[roi[3]],
+                    self.hh[roi[3]],
+                )
 
-            # GIoU loss. From the tfa documentation the inputs are encoded
-            # self.bbox_reg_giou(y_true, y_pred)
-            # y_true: true targets tensor. The coordinates of the each bounding
-            #    box in boxes are encoded as [y_min, x_min, y_max, x_max].
-            # y_pred: predictions tensor. The coordinates of the each bounding
-            #    box in boxes are encoded as [y_min, x_min, y_max, x_max].
+                t_x_star = (x - roi[4]["x"]) / (w)
+                t_y_star = (y - roi[4]["y"]) / (h)
+                t_w_star = geometry.safe_log(roi[4]["width"] / (w))
+                t_h_star = geometry.safe_log(roi[4]["height"] / (h))
 
-            # Use the bbox information to locate the regressed box
-            x_pred = x - bbox[roi[0], roi[1], roi[2], roi[3]] * w
-            y_pred = y - bbox[roi[0], roi[1], roi[2], roi[3] + self.k] * h
-            w_pred = w * tf.math.exp(bbox[roi[0], roi[1], roi[2], roi[3] + 2 * self.k])
-            h_pred = h * tf.math.exp(bbox[roi[0], roi[1], roi[2], roi[3] + 3 * self.k])
-
-            # So, unfortunately, with the exp() in the w_pred and h_pred
-            # lines this can blow up to NaN. Currently kludging
-            # around this with a finite-ness check
-            giou_loss = giou_weight * self.bbox_reg_giou(
-                tf.constant(
-                    [
-                        [
-                            roi[4]["y"],
-                            roi[4]["x"],
-                            roi[4]["y"] + roi[4]["height"],
-                            roi[4]["x"] + roi[4]["width"],
-                        ],
-                    ]
-                ),
-                [
-                    [
-                        y_pred,
-                        x_pred,
-                        y_pred + h_pred,
-                        x_pred + w_pred,
-                    ],
-                ],
-            )
-
-            if tf.math.is_finite(giou_loss):
-                loss += giou_loss
+                # Huber loss, which AFAIK is the same as smooth L1
+                loss += self.bbox_reg_l1(
+                    [t_x_star, t_y_star, t_w_star, t_h_star],
+                    bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
+                )
 
         return loss
 
@@ -632,11 +587,13 @@ class RPNWrapper:
             bbox[:, :, :, self.k : 2 * self.k].numpy()
             * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
         )
-        ww = self.ww[np.newaxis, np.newaxis, np.newaxis, :] * np.exp(
-            bbox[:, :, :, 2 * self.k : 3 * self.k].numpy()
+        ww = (
+            self.ww[np.newaxis, np.newaxis, np.newaxis, :]
+            * geometry.safe_exp(bbox[:, :, :, 2 * self.k : 3 * self.k]).numpy()
         )
-        hh = self.hh[np.newaxis, np.newaxis, np.newaxis, :] * np.exp(
-            bbox[:, :, :, 3 * self.k : 4 * self.k].numpy()
+        hh = (
+            self.hh[np.newaxis, np.newaxis, np.newaxis, :]
+            * geometry.safe_exp(bbox[:, :, :, 3 * self.k : 4 * self.k]).numpy()
         )
 
         # Reshape to flatten along proposal dimension within an image

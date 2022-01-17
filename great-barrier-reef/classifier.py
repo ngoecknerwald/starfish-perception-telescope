@@ -45,9 +45,10 @@ class Classifier(tf.keras.Model):
         self.dropout = dropout
 
         # Instantiate network components
+        self.conv1 = tf.keras.layers.Conv2D(
+            self.dense_layers[0], (1, 1), activation="relu"
+        )
         self.flatten = tf.keras.layers.Flatten()
-        self.dense1 = tf.keras.layers.Dense(self.dense_layers[0], activation="relu")
-        self.dense2 = tf.keras.layers.Dense(self.dense_layers[1], activation="relu")
         self.cls = tf.keras.layers.Dense(
             n_proposals * n_classes,
         )
@@ -55,9 +56,8 @@ class Classifier(tf.keras.Model):
         self.dropout1 = tf.keras.layers.Dropout(self.dropout)
 
     def call(self, x, training=False):
+        x = self.conv1(x)
         x = self.flatten(x)
-        x = self.dense1(x)
-        x = self.dense2(x)
         if training:
             x = self.dropout1(x)
         cls = self.cls(x)
@@ -71,7 +71,9 @@ class ClassifierWrapper:
         backbone,
         n_proposals,
         dense_layers=512,
-        learning_rate=1e-3,
+        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
+            initial_learning_rate=1e-3, decay_steps=1000, decay_rate=0.9
+        ),
         class_dropout=0.2,
     ):
         """
@@ -104,7 +106,9 @@ class ClassifierWrapper:
             dropout=class_dropout,
             dense_layers=dense_layers,
         )
-        self.optimizer = tf.keras.optimizers.Adam(learning_rate)
+        self.optimizer = tfa.optimizers.SGDW(
+            learning_rate=self.learning_rate, weight_decay=1e-4, momentum=0.9
+        )
 
         # Loss calculations
         self.class_loss = tf.keras.losses.CategoricalCrossentropy()
@@ -133,7 +137,7 @@ class ClassifierWrapper:
 
         self.classifier = tf.keras.models.load_model(filename)
 
-    def compute_loss(self, roi, label_x, cls, bbox, giou_rel_weight=1.0):
+    def compute_loss(self, roi, label_x, cls, bbox):
         """
         Compute the loss term for the full network.
 
@@ -152,8 +156,9 @@ class ClassifierWrapper:
 
         """
 
-        giou_weight = (giou_rel_weight) / (giou_rel_weight + 1.0)
-        l1_weight = 1.0 / (giou_rel_weight + 1.0)
+        # Stop the training if we hit nan values
+        if np.any(np.logical_not(np.isfinite(cls.numpy()))):
+            raise ValueError("NaN detected in the classifier, aborting training.")
 
         # Preliminaries, assign region proposals to ground truth boxes
         ground_truth_match = -1 * np.ones((roi.shape[0], roi.shape[1]), dtype=int)
@@ -191,18 +196,22 @@ class ClassifierWrapper:
             for ilabel in range(len(image_labels)):
 
                 # Grab the RoI with the largest IoU
-                iroi = np.argmax(IoUs[ilabel, :])
+                i_roi = np.argmax(IoUs[ilabel, :])
 
                 # If that's a match, then make the assignment and
                 # ignore the RoI in subsequent matching
-                if IoUs[ilabel, iroi] > 1e-2:
-                    ground_truth_match[i_image, iroi] = ilabel
-                    IoUs[:, iroi] = 0.0
+                if IoUs[ilabel, i_roi] > 1e-2:
+                    ground_truth_match[i_image, i_roi] = ilabel
+                    IoUs[:, i_roi] = 0.0
 
             del IoUs
 
+        # First the regularization term
+        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
+        loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
+
         # Binary loss term, encoded the same way as the RPN classification
-        loss = self.class_loss(
+        loss += self.class_loss(
             np.hstack([ground_truth_match < 0, ground_truth_match > 0]).astype(int),
             cls,
         )
@@ -211,56 +220,25 @@ class ClassifierWrapper:
         for i_image in range(roi.shape[0]):
             for i_roi in range(roi.shape[1]):
 
-                if ground_truth_match[i_image, i_roi] < 0:
-                    continue
+                if ground_truth_match[i_image, i_roi] > -1:
 
-                # Bounding box coords and the ground truth
-                this_roi = label_x[i_image][ground_truth_match[i_image, iroi]]
-                this_x = x[i_image, i_roi]
-                this_y = y[i_image, i_roi]
-                this_w = w[i_image, i_roi]
-                this_h = h[i_image, i_roi]
+                    # Bounding box coords and the ground truth
+                    this_roi = label_x[i_image][ground_truth_match[i_image, i_roi]]
 
-                # Huber loss, which AFAIK is the same as smooth L1
-                t_x_star = (this_x - this_roi["x"]) / (this_w)
-                t_y_star = (this_y - this_roi["y"]) / (this_h)
-                t_w_star = np.log(this_roi["width"] / (this_w))
-                t_h_star = np.log(this_roi["height"] / (this_h))
+                    # Huber loss, which AFAIK is the same as smooth L1
+                    t_x_star = (x[i_image, i_roi] - this_roi["x"]) / (w[i_image, i_roi])
+                    t_y_star = (y[i_image, i_roi] - this_roi["y"]) / (h[i_image, i_roi])
+                    t_w_star = geometry.safe_log(
+                        this_roi["width"] / (w[i_image, i_roi])
+                    )
+                    t_h_star = geometry.safe_log(
+                        this_roi["height"] / (h[i_image, i_roi])
+                    )
 
-                loss += l1_weight * self.bbox_reg_l1(
-                    [t_x_star, t_y_star, t_w_star, t_h_star],
-                    bbox[i_image, i_roi :: roi.shape[1]],
-                )
-
-                # GIoU loss
-                x_pred = this_x - bbox[i_image, i_roi] * this_w
-                y_pred = this_y - bbox[i_image, i_roi + roi.shape[1]] * this_h
-                w_pred = this_w * tf.math.exp(bbox[i_image, i_roi + 2 * roi.shape[1]])
-                h_pred = this_h * tf.math.exp(bbox[i_image, i_roi + 3 * roi.shape[1]])
-
-                giou_loss = giou_weight * self.bbox_reg_giou(
-                    tf.constant(
-                        [
-                            [
-                                this_roi["y"],
-                                this_roi["x"],
-                                this_roi["y"] + this_roi["height"],
-                                this_roi["x"] + this_roi["width"],
-                            ],
-                        ]
-                    ),
-                    [
-                        [
-                            y_pred,
-                            x_pred,
-                            y_pred + h_pred,
-                            x_pred + w_pred,
-                        ],
-                    ],
-                )
-
-                if tf.math.is_finite(giou_loss):
-                    loss += giou_loss
+                    loss += self.bbox_reg_l1(
+                        [t_x_star, t_y_star, t_w_star, t_h_star],
+                        bbox[i_image, i_roi :: roi.shape[1]],
+                    )
 
         return loss
 
@@ -345,8 +323,14 @@ class ClassifierWrapper:
         yy = roi[:, :, 1] - (
             bbox[:, roi.shape[1] : 2 * roi.shape[1]].numpy() * roi[:, :, 3]
         )
-        ww = roi[:, :, 2] * np.exp(bbox[:, 2 * roi.shape[1] : 3 * roi.shape[1]].numpy())
-        hh = roi[:, :, 3] * np.exp(bbox[:, 3 * roi.shape[1] : 4 * roi.shape[1]].numpy())
+        ww = (
+            roi[:, :, 2]
+            * geometry.safe_exp(bbox[:, 2 * roi.shape[1] : 3 * roi.shape[1]]).numpy()
+        )
+        hh = (
+            roi[:, :, 3]
+            * geometry.safe_exp(bbox[:, 3 * roi.shape[1] : 4 * roi.shape[1]]).numpy()
+        )
 
         x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
         w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
