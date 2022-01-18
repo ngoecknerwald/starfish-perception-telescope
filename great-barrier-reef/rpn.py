@@ -158,8 +158,8 @@ class RPNWrapper:
 
         # Make the list of window sizes
         hh, ww = np.meshgrid(self.window_sizes, self.window_sizes)
-        self.hh = tf.constant(hh.reshape(-1))
-        self.ww = tf.constant(ww.reshape(-1))
+        self.hh = tf.constant(hh.reshape(-1), dtype='float32')
+        self.ww = tf.constant(ww.reshape(-1), dtype='float32')
         self.k = len(self.window_sizes) ** 2
 
         # Need to refer the anchor points back to the feature space
@@ -167,8 +167,8 @@ class RPNWrapper:
             range(0, self.backbone.output_shape[1], self.anchor_stride),
             range(0, self.backbone.output_shape[0], self.anchor_stride),
         )
-        self.anchor_xx = tf.constant(self.anchor_xx)
-        self.anchor_yy = tf.constant(self.anchor_yy)
+        self.anchor_xx = tf.constant(self.anchor_xx, dtype='float32')
+        self.anchor_yy = tf.constant(self.anchor_yy, dtype='float32')
 
         # Mask off invalid RoI that cross the image boundary
         self.valid_mask = np.logical_and(
@@ -582,20 +582,20 @@ class RPNWrapper:
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
         # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         # Now cue the infinite magic numpy indexing
-        xx = tf.cast(self.anchor_xx[np.newaxis, :, :, np.newaxis], 'float32') - (
+        xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] - (
             bbox[:, :, :, : self.k]
-            * tf.cast(self.ww[np.newaxis, np.newaxis, np.newaxis, :], 'float32')
+            * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
         )
-        yy = tf.cast(self.anchor_yy[np.newaxis, :, :, np.newaxis], 'float32') - (
+        yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] - (
             bbox[:, :, :, self.k : 2 * self.k]
-            * tf.cast(self.hh[np.newaxis, np.newaxis, np.newaxis, :], 'float32')
+            * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
         )
         ww = (
-            tf.cast(self.ww[np.newaxis, np.newaxis, np.newaxis, :], 'float32')
+            self.ww[np.newaxis, np.newaxis, np.newaxis, :]
             * geometry.safe_exp(bbox[:, :, :, 2 * self.k : 3 * self.k])
         )
         hh = (
-            tf.cast(self.hh[np.newaxis, np.newaxis, np.newaxis, :], 'float32')
+            self.hh[np.newaxis, np.newaxis, np.newaxis, :]
             * geometry.safe_exp(bbox[:, :, :, 3 * self.k : 4 * self.k])
         )
 
