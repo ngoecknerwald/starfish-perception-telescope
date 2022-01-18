@@ -73,11 +73,17 @@ class RPNWrapper:
         self,
         backbone,
         kernel_size=3,
-        learning_rate=keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[10000, 20000], values=[1e-3, 1e-4]
+        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-3, 1e-4],
         ),
-        weight_decay=keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[10000, 20000], values=[1e-4, 1e-5]
+        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-4, 1e-5],
         ),
         anchor_stride=1,
         window_sizes=[2, 4],  # these must be divisible by 2

@@ -66,11 +66,17 @@ class ClassifierWrapper:
         backbone,
         n_proposals,
         dense_layers=512,
-        learning_rate=keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[10000, 20000], values=[1e-3, 1e-4]
+        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-3, 1e-4],
         ),
-        weight_decay=keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[10000, 20000], values=[1e-4, 1e-5]
+        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-4, 1e-5],
         ),
         class_dropout=0.2,
     ):
