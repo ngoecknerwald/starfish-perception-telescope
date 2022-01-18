@@ -73,8 +73,11 @@ class RPNWrapper:
         self,
         backbone,
         kernel_size=3,
-        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=1e-3, decay_steps=1000, decay_rate=0.9
+        learning_rate=keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[10000, 20000], values=[1e-3, 1e-4]
+        ),
+        weight_decay=keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[10000, 20000], values=[1e-4, 1e-5]
         ),
         anchor_stride=1,
         window_sizes=[2, 4],  # these must be divisible by 2
@@ -118,6 +121,7 @@ class RPNWrapper:
         self.backbone = backbone
         self.kernel_size = kernel_size
         self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
         self.anchor_stride = anchor_stride
         self.window_sizes = window_sizes
         self.filters = filters
@@ -141,7 +145,9 @@ class RPNWrapper:
 
         # Optimizer
         self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=self.learning_rate, weight_decay=1e-4, momentum=0.9
+            learning_rate=self.learning_rate,
+            weight_decay=self.weight_decay,
+            momentum=0.9,
         )
 
         # Classification loss
