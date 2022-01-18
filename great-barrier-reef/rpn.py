@@ -182,7 +182,7 @@ class RPNWrapper:
             ),
         )
 
-    def ground_truth_IoU(self, annotations, xx, yy, hh, ww):
+    def ground_truth_IoU(self, annotations, xx, yy, ww, hh):
         """
         Compute the ground truth IoU for a set of boxes defined in feature space.
         Note that xx,yy refers to the bottom left corner of the box, not the middle.
@@ -256,7 +256,7 @@ class RPNWrapper:
             """
             Fill the list of ROIs with both positive and negative examples
 
-            Return (rpn_minibatch/images) samples (image number, xx, yy, hh, ww, {})
+            Return (rpn_minibatch/images) samples (image number, iyy, ixx, ik, {})
             corresponding to negative examples no matter what. This ensures that we
             have enough examples to fill out the RPN minibatch
 
@@ -290,8 +290,8 @@ class RPNWrapper:
                                 this_label,
                                 self.anchor_xx[iyy, ixx],
                                 self.anchor_yy[iyy, ixx],
-                                self.hh[ik],
                                 self.ww[ik],
+                                self.hh[ik],
                             )
                         ]
                     )
@@ -312,8 +312,8 @@ class RPNWrapper:
                         this_label,
                         self.anchor_xx,
                         self.anchor_yy,
-                        self.hh[ik],
                         self.ww[ik],
+                        self.hh[ik],
                     )
                     for ik in range(self.k)
                 ]
@@ -330,10 +330,6 @@ class RPNWrapper:
                 )
                 for j in range(pos_slice.shape[0]):
                     ik, iyy, ixx = pos_slice[j, :]
-                    xx = self.anchor_xx[iyy, ixx]
-                    yy = self.anchor_yy[iyy, ixx]
-                    hh = self.hh[ik]
-                    ww = self.ww[ik]
                     rois.append([i, iyy, ixx, ik, this_label[ilabel]])
 
         # Something has gone horribly wrong with collecting RoIs, so skip this training step
