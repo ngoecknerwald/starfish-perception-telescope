@@ -281,7 +281,7 @@ class RPNWrapper:
                 ik = np.random.randint(self.k)
 
                 # Check if this is a valid negative RoI
-                if self.valid_mask[iyy, iyy, ik] and (
+                if self.valid_mask[iyy, ixx, ik] and (
                     len(this_label) == 0
                     or all(
                         [
