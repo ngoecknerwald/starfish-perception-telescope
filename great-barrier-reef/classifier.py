@@ -115,6 +115,7 @@ class ClassifierWrapper:
             learning_rate=self.learning_rate,
             weight_decay=self.weight_decay,
             momentum=0.9,
+            clipvalue=1e2,
         )
 
         # Loss calculations
