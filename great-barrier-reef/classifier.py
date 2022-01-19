@@ -104,6 +104,8 @@ class ClassifierWrapper:
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.dense_layers = dense_layers
+        self.starlist=[]
+
 
         # Network and optimizer
         self.classifier = Classifier(
@@ -165,6 +167,7 @@ class ClassifierWrapper:
 
         # Stop the training if we hit nan values
         if np.any(np.logical_not(np.isfinite(cls.numpy()))):
+            print(self.starlist)
             raise ValueError("NaN detected in the classifier, aborting training.")
 
         # Preliminaries, assign region proposals to ground truth boxes
@@ -242,10 +245,16 @@ class ClassifierWrapper:
                         this_roi["height"] / (h[i_image, i_roi])
                     )
 
+                    self.starlist.append(np.array([t_x_star, t_y_star, t_w_star, t_h_star]))
+                    if len(self.starlist) > 100:
+                        _ = self.starlist.pop(0)
+
                     loss += self.bbox_reg_l1(
                         [t_x_star, t_y_star, t_w_star, t_h_star],
                         bbox[i_image, i_roi :: roi.shape[1]],
                     )
+
+        
 
         return loss
 

@@ -3,7 +3,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 import backbone, classifier, data_utils, roi_pooling, rpn
 import os
-
+import numpy as np
 
 class FasterRCNNWrapper:
     def __init__(
@@ -74,8 +74,13 @@ class FasterRCNNWrapper:
         # Instantiate the tail network
         self.instantiate_RoI_pool(roi_kwargs)
 
+        self.roi_prepool=[]
+        self.roi_postpool=[]
+
         # This should be instantiated last
         self.instantiate_classifier(classifier_weights, classifier_kwargs)
+
+
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         """
@@ -277,17 +282,31 @@ class FasterRCNNWrapper:
                 features = self.backbone.extractor(train_x)
                 roi = self.rpnwrapper.propose_regions(features, input_is_images=False)
 
+                self.roi_prepool.append(np.array(roi))
+                if len(self.roi_prepool) > 10:
+                  _ = self.roi_prepool.pop(0)
+
                 # Clip the RoI and pool the features
                 features, roi = self.RoI_pool(features, roi)
 
-                # Take a gradient step
-                self.classwrapper.training_step(
+                self.roi_postpool.append(np.array(roi))
+                if len(self.roi_postpool) > 10:
+                  _ = self.roi_postpool.pop(0)
+
+                try:
+                  # Take a gradient step
+                  self.classwrapper.training_step(
                     features,
                     roi.astype(float),
                     [self.data_loader_full.decode_label(_label) for _label in label_x],
-                )
-
+                  )
+                except:
+                  print(self.roi_prepool)
+                  print(self.roi_postpool)
+                  raise
+            
             print("")
+            self.classwrapper.save_classifier_state('drive/MyDrive/trained_classifier.ckpt')
 
     def predict(self, image):
 
