@@ -2,6 +2,7 @@
 # Two variants are provided, one returning thumbnails for
 # fine tuning the backbone and one returning full size images
 
+import tensorflow as tf
 from tensorflow.keras.utils import image_dataset_from_directory
 import pandas as pd
 import os
@@ -34,7 +35,30 @@ class DataLoader:
         self.batch_size = None
         self.validation_split = None
         self.seed = 150601497
+
         self.labels = pd.read_csv(os.path.join(self.input_file, "train.csv"))
+
+        # Make the labels a ragged tensor to be used in compiled models
+        # Indices are image #, annotation #, xywh
+        self.label_tensor = tf.ragged.constant(
+            [
+                self.label_to_ragged(annotation)
+                for annotation in self.labels["annotations"]
+            ],
+            dtype="float32",
+        )
+
+    @staticmethod
+    def label_to_ragged(label):
+        """
+        Convert the annotation string format to a nested list
+        to be used in the annotation ragged tensor.
+
+        """
+        return [
+            [a["x"], a["y"], a["width"], a["height"]]
+            for a in json.loads(label.replace("'", '"'))
+        ]
 
 
 # This class will be a wrapper for getting the full-sized images into the ML models
@@ -127,6 +151,7 @@ class DataLoaderFull(DataLoader):
 
         return self.validation
 
+    @tf.function
     def decode_label(self, label):
         """
         Decode the label defined in the dataset creation into a list
@@ -137,13 +162,12 @@ class DataLoaderFull(DataLoader):
 
         Arguments:
 
-        label: int
+        label: tf.constant(int)
             Image number from the (sorted) dataset. This is decoded to a set of bounding boxes.
 
         """
 
-        st = self.labels["annotations"][label.numpy()].replace("'", '"')
-        return json.loads(st)
+        return self.label_tensor[label]
 
 
 # This class returns a set of thumbnails that either do or do not have starfish.
