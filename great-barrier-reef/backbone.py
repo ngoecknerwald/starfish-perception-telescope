@@ -31,7 +31,7 @@ def instantiate(backbone_type, init_args):
         raise ValueError("Argument backbone=%s is not recognized." % backbone_type)
 
 
-class Backbone:
+class Backbone(tf.Keras.Layer):
     def __init__(self):
         """
         Superclass for different backbone models.
@@ -39,30 +39,6 @@ class Backbone:
         self.extractor = None
         self.input_shape = None
         self.output_shape = None
-
-    def save_backbone(self, path):
-        """
-        Save the trained convolutional layers of the backbone to a file path.
-
-        Arguments:
-
-        path: str
-            Save path for the (tuned) backbone model.
-        """
-
-        tf.keras.models.save_model(self.network, path)
-
-    def load_backbone(self, path):
-        """
-        Load the tuned backbone from a path.
-
-        path: str
-            Load path for the (tuned) backbone model.
-        """
-
-        local_network = tf.keras.models.load_model(path)
-        self.network.set_weights(local_network.get_weights())
-        del local_network
 
     @tf.function
     def feature_coords_to_image_coords(self, xx, yy):
@@ -104,6 +80,43 @@ class Backbone:
             x * (self.output_shape[1] / self.input_shape[1]),
             y * (self.output_shape[0] / self.input_shape[0]),
         )
+
+    def call(self, x):
+        """
+        Run the feature extractor on an image minibatch
+
+        Arguments:
+
+        x : tf.tensor
+            Input image minibatch
+
+        """
+        return self.extractor(x)
+
+    # Other python-land functions
+    def save_backbone(self, path):
+        """
+        Save the trained convolutional layers of the backbone to a file path.
+
+        Arguments:
+
+        path: str
+            Save path for the (tuned) backbone model.
+        """
+
+        tf.keras.models.save_model(self.network, path)
+
+    def load_backbone(self, path):
+        """
+        Load the tuned backbone from a path.
+
+        path: str
+            Load path for the (tuned) backbone model.
+        """
+
+        local_network = tf.keras.models.load_model(path)
+        self.network.set_weights(local_network.get_weights())
+        del local_network
 
     def pretrain(
         self,

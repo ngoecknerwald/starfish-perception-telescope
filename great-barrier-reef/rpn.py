@@ -14,8 +14,8 @@ import geometry
 CUTOFF = 100
 
 
-class RPN(tf.keras.Model):
-    def __init__(self, k, kernel_size, anchor_stride, filters, dropout=0.2):
+class RPNLayer(tf.keras.Layer):
+    def __init__(self, k, kernel_size, anchor_stride, filters, dropout):
         """
         Class for the RPN consisting of a convolutional layer and two fully connected layers
         for "objectness" and bounding box regression.
@@ -49,44 +49,35 @@ class RPN(tf.keras.Model):
         )
         if self.dropout is not None:
             self.dropout1 = tf.keras.layers.Dropout(self.dropout)
-        self.cls_bbox = tf.keras.layers.Conv2D(
-            filters=6 * self.k, kernel_size=1, strides=(1, 1)
+        self.cls = tf.keras.layers.Conv2D(
+            filters=2 * self.k, kernel_size=1, strides=(1, 1)
+        )
+        self.bbox = tf.keras.layers.Conv2D(
+            filters=4 * self.k, kernel_size=1, strides=(1, 1)
         )
 
-    # This needs to return a single variable to hand to the loss
-    # when we compile the model, so just concatenate cls and bbox
     def call(self, x, training=False):
         x = self.conv1(x)
         if hasattr(self, "dropout1") and training:
             x = self.dropout1(x)
-        return self.cls_bbox(x)
+        cls = self.cls(x)
+        bbox = self.bbox(x)
+        return (cls, bbox)
 
 
-class RPNWrapper:
+class RPNModel(tf.keras.Model):
     def __init__(
         self,
         backbone,
-        kernel_size=3,
-        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[
-                10000,
-            ],
-            values=[1e-3, 1e-4],
-        ),
-        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[
-                10000,
-            ],
-            values=[1e-4, 1e-5],
-        ),
-        anchor_stride=1,
-        window_sizes=[2, 4],  # these must be divisible by 2
-        filters=512,
-        rpn_minibatch=16,
-        IoU_neg_threshold=0.1,
-        IoU_pos_threshold=0.7,
-        rpn_dropout=0.2,
-        n_roi=100,
+        kernel_size,
+        anchor_stride,
+        window_sizes,
+        filters,
+        rpn_minibatch,
+        IoU_neg_threshold,
+        IoU_pos_threshold,
+        rpn_dropout,
+        n_roi,
     ):
         """
         Initialize the RPN model for pretraining.
@@ -95,8 +86,6 @@ class RPNWrapper:
             Knows input image and feature map sizes but is not directly trained here.
         kernel_size : int
             Kernel size for the first convolutional layer in the RPN.
-        learning_rate : float or tf.keras.optimizers.schedules.LearningRateSchedule
-            Learning rate for the SGD optimizer.
         anchor_stride : int
             Stride of the anchor in image space in the RPN.
         window_sizes : list of ints
@@ -135,20 +124,12 @@ class RPNWrapper:
         self._build_anchor_boxes()
 
         # Build the model
-        self.rpn = RPN(
+        self.rpn = RPNLayer(
             self.k,
             self.kernel_size,
             self.anchor_stride,
             self.filters,
-            dropout=self.rpn_dropout,
-        )
-
-        # Optimizer
-        self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=self.learning_rate,
-            weight_decay=self.weight_decay,
-            momentum=0.9,
-            clipvalue=1e2,
+            self.rpn_dropout,
         )
 
         # Classification loss
@@ -157,96 +138,164 @@ class RPNWrapper:
         # Regression loss terms
         self.bbox_reg_l1 = tf.keras.losses.Huber()
 
-    def _build_anchor_boxes(self):
-        """
-        Build the anchor box sizes in the feature space.
+    # Two methods required by the tf.keras.Model interface,
+    # the training step and the forward pass
+    def train_step(self, data):
 
         """
-
-        # Make the list of window sizes
-        hh, ww = np.meshgrid(self.window_sizes, self.window_sizes)
-        self.hh = tf.constant(hh.reshape(-1), dtype="float32")
-        self.ww = tf.constant(ww.reshape(-1), dtype="float32")
-        self.k = len(self.window_sizes) ** 2
-
-        # Need to refer the anchor points back to the feature space
-        anchor_xx, anchor_yy = np.meshgrid(
-            range(
-                0,
-                tf.cast(self.backbone.output_shape[1], dtype="int32"),
-                self.anchor_stride,
-            ),
-            range(
-                0,
-                tf.cast(self.backbone.output_shape[0], dtype="int32"),
-                self.anchor_stride,
-            ),
-        )
-        self.anchor_xx = tf.constant(anchor_xx, dtype="float32")
-        self.anchor_yy = tf.constant(anchor_yy, dtype="float32")
-
-        # Mask off invalid RoI that cross the image boundary
-        self.valid_mask = tf.constant(
-            tf.math.logical_and(
-                tf.math.logical_and(
-                    self.anchor_xx[:, :, tf.newaxis] >= 0,
-                    self.anchor_yy[:, :, tf.newaxis] >= 0,
-                ),
-                tf.math.logical_and(
-                    self.anchor_xx[:, :, tf.newaxis]
-                    + self.ww[tf.newaxis, tf.newaxis, :]
-                    < self.backbone.output_shape[1],
-                    self.anchor_yy[:, :, tf.newaxis]
-                    + self.hh[tf.newaxis, tf.newaxis, :]
-                    < self.backbone.output_shape[0],
-                ),
-            ),
-            dtype="bool",
-        )
-
-    @tf.function
-    def ground_truth_IoU(self, annotations, xx, yy, ww, hh):
-        """
-        Compute the ground truth IoU for a set of boxes defined in feature space.
-        Note that xx,yy refers to the bottom left corner of the box, not the middle.
+        Take a convolved feature map, compute RoI, and
+        update the RPN comparing to the ground truth.
 
         Arguments:
 
-        annotations : slice of tf.ragged.constant()
-            Tensor of shape (None, 4,) encoded [xywh] in image coordinates.
-        xx : tf.constant
-            Pixel coordinates in the feature map.
-        yy : tf.constant
-            Pixel corrdinates in the feature map.
-        ww : tf.constant
-            Pixel corrdinates in the feature map.
-        hh : tf.constant
-            Pixel coordinates in the feature map.
-
-        Returns:
-
-        IoU: list of numpy array
-            Ground truth IoU for each annotation.
+        data : (tf.tensor, tf.ragged.constant)
+            Packed images and labels for this minibatch.
 
         """
 
-        print("Python interpreter in rpnwrapper.ground_truth_IoU")
+        # Unpack the images and ground truth annotations
+        images, labels = data
 
-        # Coordinates and area of the proposed region
-        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
-        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
-        proposal_box = tf.stack([x, y, w, h])
+        # Run the feature extractor
+        features = self.backbone(images)
 
-        # Return stacked tensor
-        return tf.stack(
-            [
-                geometry.calculate_IoU(proposal_box, annotations[i, :])
-                for i in range(annotations.shape[0])
-            ]
+        # Accumulate RoI data
+        rois = self._accumulate_roi(labels, features.shape[0])
+
+        # Compute loss
+        with tf.GradientTape() as tape:
+
+            # Call the RPN
+            cls, bbox = self.rpnlayer(features, training=True)
+
+            # Compute the loss using the classification scores and bounding boxes
+            loss = self.compute_loss(cls, bbox, rois)
+
+        # Apply gradients in the optimizer. Note that TF will throw spurious warnings if gradients
+        # don't exist for the bbox regression if there were no + examples in the minibatch
+        # This isn't actually an error, so list comprehension around it
+        gradients = tape.gradient(loss, self.rpnlayer.trainable_variables)
+        self.optimizer.apply_gradients(
+            (grad, var)
+            for (grad, var) in zip(gradients, self.rpnlayer.trainable_variables)
+            if grad is not None
         )
 
-    # Method that will eventually belong to the RPNWrapper class
-    def accumulate_roi(self, label_decode, image_minibatch):
+    ####################################################
+    #
+    # Begin not done
+    #
+    ####################################################
+    def call(
+        self,
+        input_image_or_features,
+        image_coords=False,
+        input_is_images=False,
+    ):
+        """
+        Run the RPN in forward mode on a minibatch of images.
+        This method is used to train the final classification network
+        and to evaluate at test time.
+
+        Arguments:
+
+        input_image_or_features : dataset minibatch
+            Set of image(s) to run through the network. Either features or images.
+        image_coords : bool
+            If True, returns objectness and coordinates in image space as numpy arrays.
+            Otherwise, returns output as a tensor in feature space coordinates for
+            feedforward to the rest of the network.
+        input_is_images : bool
+            Set to true to run the input through the backbone, otherwise assumes this
+            has already been done.
+
+        Returns:
+        [image_coords = False]
+            Tensor of shape (batch_size, top, 4) with feature space
+            coordinates (xx,yy,ww,hh)
+
+        [image_coords = True]
+            Tensor of shape (batch_size, top, 4) with image space
+            coordinates (x,y,w,h)
+        """
+
+        # Run the feature extractor and the RPN in forward mode, adding an additional
+        # image dimension if necessary
+
+        if input_is_images:
+            features = self.backbone.extractor(input_image_or_features)
+        else:
+            features = input_image_or_features
+
+        # Run through the RPN
+        cls, bbox = self.rpn(features)
+
+        # Dimension is image, iyy, ixx, ik were ik is
+        # [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...]
+        objectness_l0 = cls[:, :, :, : self.k]
+        objectness_l1 = cls[:, :, :, self.k :]
+
+        # Need to unpack a bit and hit with softmax
+        objectness_l0 = tf.reshape(objectness_l0, (objectness_l0.shape[0], -1))
+        objectness_l1 = tf.reshape(objectness_l1, (objectness_l1.shape[0], -1))
+        objectness = tf.nn.softmax(tf.stack([objectness_l0, objectness_l1]), axis=0)
+
+        # Cut to the one-hot bit
+        objectness = objectness[1, :, :]
+
+        # Remove the invalid bounding boxes
+        objectness = tf.math.multiply(
+            objectness, self.valid_mask.reshape(-1)[np.newaxis, :]
+        )
+
+        # Dimension for bbox is same as cls but ik follows
+        # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
+        # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
+        # Now cue the infinite magic numpy indexing
+        xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] - (
+            bbox[:, :, :, : self.k] * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
+        )
+        yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] - (
+            bbox[:, :, :, self.k : 2 * self.k]
+            * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
+        )
+        ww = self.ww[np.newaxis, np.newaxis, np.newaxis, :] * geometry.safe_exp(
+            bbox[:, :, :, 2 * self.k : 3 * self.k]
+        )
+        hh = self.hh[np.newaxis, np.newaxis, np.newaxis, :] * geometry.safe_exp(
+            bbox[:, :, :, 3 * self.k : 4 * self.k]
+        )
+
+        # Reshape to flatten along proposal dimension within an image
+        argsort = tf.argsort(objectness, axis=-1, direction="DESCENDING")
+
+        # If no limit requested, just return everything
+        if self.n_roi < 1:
+            self.n_roi = objectness.shape[1]
+
+        def batch_sort(arr, inds, n):
+            return tf.gather(tf.reshape(arr, (arr.shape[0], -1)), inds, batch_dims=1)[
+                :, :n
+            ]
+
+        # Sort things by objectness
+        xx = batch_sort(xx, argsort, self.n_roi)
+        yy = batch_sort(yy, argsort, self.n_roi)
+        ww = batch_sort(ww, argsort, self.n_roi)
+        hh = batch_sort(hh, argsort, self.n_roi)
+
+        if not image_coords:
+            output = tf.stack([xx, yy, ww, hh], axis=-1)
+            return output
+
+        # Convert to image plane
+        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
+        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
+        return tf.stack([x, y, w, h], axis=-1)
+
+    # Helper methods
+    @tf.function
+    def _accumulate_roi(self, label_decode, image_minibatch):
         """
         Make a list of RoIs of positive and negative examples
         and their corresponding ground truth annotations.
@@ -370,11 +419,8 @@ class RPNWrapper:
 
         return rois
 
-    # Required signature is this, so let's
-    # work backwards. The rois needs to be a RaggedTensor
-    # custom_loss(y_actual,y_pred)
     @tf.function
-    def compute_loss(self, cls, bbox, rois):
+    def _compute_loss(self, cls, bbox, rois):
 
         """
         Compute the loss function for a set of classification
@@ -441,46 +487,189 @@ class RPNWrapper:
 
         return loss
 
-    def training_step(self, features, label_decode):
+    ####################################################
+    #
+    # End not done
+    #
+    ####################################################
+
+    def _build_anchor_boxes(self):
+        """
+        Build the anchor box sizes in the feature space.
 
         """
-        Take a convolved feature map, compute RoI, and
-        update the RPN comparing to the ground truth.
+
+        # Make the list of window sizes
+        hh, ww = np.meshgrid(self.window_sizes, self.window_sizes)
+        self.hh = tf.constant(hh.reshape(-1), dtype="float32")
+        self.ww = tf.constant(ww.reshape(-1), dtype="float32")
+        self.k = len(self.window_sizes) ** 2
+
+        # Need to refer the anchor points back to the feature space
+        anchor_xx, anchor_yy = tf.meshgrid(
+            range(
+                0,
+                tf.cast(self.backbone.output_shape[1], dtype="int32"),
+                self.anchor_stride,
+            ),
+            range(
+                0,
+                tf.cast(self.backbone.output_shape[0], dtype="int32"),
+                self.anchor_stride,
+            ),
+        )
+        self.anchor_xx = tf.constant(anchor_xx, dtype="float32")
+        self.anchor_yy = tf.constant(anchor_yy, dtype="float32")
+
+        # Mask off invalid RoI that cross the image boundary
+        self.valid_mask = tf.constant(
+            tf.math.logical_and(
+                tf.math.logical_and(
+                    self.anchor_xx[:, :, tf.newaxis] >= 0,
+                    self.anchor_yy[:, :, tf.newaxis] >= 0,
+                ),
+                tf.math.logical_and(
+                    self.anchor_xx[:, :, tf.newaxis]
+                    + self.ww[tf.newaxis, tf.newaxis, :]
+                    < self.backbone.output_shape[1],
+                    self.anchor_yy[:, :, tf.newaxis]
+                    + self.hh[tf.newaxis, tf.newaxis, :]
+                    < self.backbone.output_shape[0],
+                ),
+            ),
+            dtype="bool",
+        )
+
+    @tf.function
+    def _ground_truth_IoU(self, annotations, xx, yy, ww, hh):
+        """
+        Compute the ground truth IoU for a set of boxes defined in feature space.
+        Note that xx,yy refers to the bottom left corner of the box, not the middle.
 
         Arguments:
 
-        features : tensor
-            Minibatch of input images after running through the backbone
-        label_decode : list of dicts
-            Decoded labels for this minibatch
+        annotations : slice of tf.ragged.constant()
+            Tensor of shape (None, 4,) encoded [xywh] in image coordinates.
+        xx : tf.constant
+            Pixel coordinates in the feature map.
+        yy : tf.constant
+            Pixel corrdinates in the feature map.
+        ww : tf.constant
+            Pixel corrdinates in the feature map.
+        hh : tf.constant
+            Pixel coordinates in the feature map.
+
+        Returns:
+
+        IoU: list of numpy array
+            Ground truth IoU for each annotation.
 
         """
 
-        rois = self.accumulate_roi(label_decode, features.shape[0])
+        print("Python interpreter in rpnwrapper.ground_truth_IoU")
 
-        # Something went wrong with making a list of RoIs, return
-        if rois is None:
-            return
+        # Coordinates and area of the proposed region
+        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
+        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
+        proposal_box = tf.stack([x, y, w, h])
 
-        with tf.GradientTape() as tape:
-
-            # Call the RPN
-            cls, bbox = self.rpn(features, training=True)
-
-            # Compute the loss using the classification scores and bounding boxes
-            loss = self.compute_loss(cls, bbox, rois)
-
-        # Apply gradients in the optimizer. Note that TF will throw spurious warnings if gradients
-        # don't exist for the bbox regression if there were no + examples in the minibatch
-        # This isn't actually an error, so list comprehension around it
-        gradients = tape.gradient(loss, self.rpn.trainable_variables)
-        self.optimizer.apply_gradients(
-            (grad, var)
-            for (grad, var) in zip(gradients, self.rpn.trainable_variables)
-            if grad is not None
+        # Return stacked tensor
+        return tf.stack(
+            [
+                geometry.calculate_IoU(proposal_box, annotations[i, :])
+                for i in range(annotations.shape[0])
+            ]
         )
 
-    def train_rpn(self, train_dataset, valid_dataset=None, epochs=5):
+
+# Just like the old wrapper class, doesn't extend anything from keras
+class RPNWrapper:
+    def __init__(
+        self,
+        backbone,
+        kernel_size=3,
+        anchor_stride=1,
+        window_sizes=[2, 4],  # these must be divisible by 2
+        filters=512,
+        rpn_minibatch=16,
+        IoU_neg_threshold=0.1,
+        IoU_pos_threshold=0.7,
+        rpn_dropout=0.2,
+        n_roi=100,
+        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-3, 1e-4],
+        ),
+        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-4, 1e-5],
+        ),
+        momentum=0.9,
+        clipvalue=1e2,
+    ):
+        """
+        Wrapper class for the RPN model
+
+        backbone : Backbone
+            Knows input image and feature map sizes but is not directly trained here.
+        kernel_size : int
+            Kernel size for the first convolutional layer in the RPN.
+        anchor_stride : int
+            Stride of the anchor in image space in the RPN.
+        window_sizes : list of ints
+            Width of the proposals to select, *in extracted feature space*. Bypasses
+            aspect ratios with np.meshgrid().
+        filters: int
+            Number of filters between the convolutional layer
+            and the fully connected layers in the RPN.
+        rpn_minibatch : int
+            Number of RoIs to use ( = positive + negative) per gradient step in the RPN.
+        IoU_neg_threshold : float
+            IoU to declare that a region proposal is a negative example.
+        IoU_pos_threshold : float
+            IoU to declare that a region proposal is a positive example.
+        rpn_dropout : float or None
+            Add dropout to the RPN with this fraction. Pass None to skip.
+        n_roi : int
+            Number of regions to propose in forward pass. Pass -1 to return all.
+        learning_rate : float or tf.keras.optimizers.schedules
+            Learning rate for the SDGW optimizer.
+        weight_decay : float or tf.keras.optimizers.schedules
+            Weight decay for the optimizer.
+        momentum : float
+            Momentum parameter for the SGDW optimizer.
+        clipvalue : float
+            Maximum allowable gradient for the SGDW optimizer.
+        """
+
+        self.rpnmodel = RPNModel(
+            backbone,
+            kernel_size,
+            anchor_stride,
+            window_sizes,
+            filters,
+            rpn_minibatch,
+            IoU_neg_threshold,
+            IoU_pos_threshold,
+            rpn_dropout,
+            n_roi,
+        )
+
+        # Optimizer
+        self.optimizer = tfa.optimizers.SGDW(
+            learning_rate=self.learning_rate,
+            weight_decay=self.weight_decay,
+            momentum=momentum,
+            clipvalue=clipvalue,
+        )
+
+        self.rpnmodel.compile(optimizer=self.optimizer)
+
+    def train_rpn(self, train_dataset, epochs=5):
         """
         Main training loop iterating over a dataset.
 
@@ -494,149 +683,7 @@ class RPNWrapper:
 
         """
 
-        # TODO do we need or want a validation here? That might be slow-ish.
-        valid_dataset
-        self.rpn.fit(train_dataset, epochs=epochs, validation_data=valid_dataset)
-
-        # Training loop, all complexity is in training_step()
-        # for epoch in range(epochs):
-
-        #   print("RPN training epoch %d" % epoch, end="")
-
-        #   for i, (train_x, label_x) in enumerate(train_dataset):
-
-        # The dots were getting out of hand
-        #       if i % 100 == 0:
-        #           print(".", end="")
-
-        # Note that we could in theory fine-tune the method by moving the feature
-        # convolution by the backbone into the self.training_step() tf.GradientTape()
-        # block, but we are not doing that here.
-        #        features = self.backbone.extractor(train_x)
-
-        # Run gradient step with these features and the ground truth labels
-        #        self.training_step(features, [labelfunc(label) for label in label_x])
-
-        #    print("")
-
-    @tf.function
-    def propose_regions(
-        self,
-        input_image_or_features,
-        image_coords=False,
-        ignore_bbox=False,
-        input_is_images=False,
-    ):
-        """
-        Run the RPN in forward mode on a minibatch of images.
-        This method is used to train the final classification network
-        and to evaluate at test time.
-
-        Arguments:
-
-        input_image_or_features : dataset minibatch
-            Set of image(s) to run through the network. Either features or images.
-        top : int
-            Return this number of region proposals with the highest classification
-            scores. If <= 0 then return everything.
-        image_coords : bool
-            If True, returns objectness and coordinates in image space as numpy arrays.
-            Otherwise, returns output as a tensor in feature space coordinates for
-            feedforward to the rest of the network.
-        ignore_bbox : bool
-            If True, ignore the bounding box regression and return unmodified proposal
-            regions based on the classification score. Useful for debugging.
-        input_is_images : bool
-            Set to true to run the input through the backbone, otherwise assumes this
-            has already been done.
-
-        Returns:
-        [image_coords = False]
-            Tensor of shape (batch_size, top, 4) with feature space
-            coordinates (xx,yy,ww,hh)
-
-        [image_coords = True]
-            Tensor of shape (batch_size, top, 4) with image space
-            coordinates (x,y,w,h)
-        """
-
-        # Run the feature extractor and the RPN in forward mode, adding an additional
-        # image dimension if necessary
-
-        if input_is_images:
-            features = self.backbone.extractor(input_image_or_features)
-        else:
-            features = input_image_or_features
-
-        # Run through the RPN
-        cls, bbox = self.rpn(features)
-
-        # Zero out the bounding box regression if requested
-        if ignore_bbox:
-            bbox *= 0.0
-
-        # Dimension is image, iyy, ixx, ik were ik is
-        # [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...]
-        objectness_l0 = cls[:, :, :, : self.k]
-        objectness_l1 = cls[:, :, :, self.k :]
-
-        # Need to unpack a bit and hit with softmax
-        objectness_l0 = tf.reshape(objectness_l0, (objectness_l0.shape[0], -1))
-        objectness_l1 = tf.reshape(objectness_l1, (objectness_l1.shape[0], -1))
-        objectness = tf.nn.softmax(tf.stack([objectness_l0, objectness_l1]), axis=0)
-
-        # Cut to the one-hot bit
-        objectness = objectness[1, :, :]
-
-        # Remove the invalid bounding boxes
-        objectness = tf.math.multiply(
-            objectness, self.valid_mask.reshape(-1)[np.newaxis, :]
-        )
-
-        # Dimension for bbox is same as cls but ik follows
-        # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
-        # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
-        # Now cue the infinite magic numpy indexing
-        xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] - (
-            bbox[:, :, :, : self.k] * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
-        )
-        yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] - (
-            bbox[:, :, :, self.k : 2 * self.k]
-            * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
-        )
-        ww = self.ww[np.newaxis, np.newaxis, np.newaxis, :] * geometry.safe_exp(
-            bbox[:, :, :, 2 * self.k : 3 * self.k]
-        )
-        hh = self.hh[np.newaxis, np.newaxis, np.newaxis, :] * geometry.safe_exp(
-            bbox[:, :, :, 3 * self.k : 4 * self.k]
-        )
-
-        # Reshape to flatten along proposal dimension within an image
-        argsort = tf.argsort(objectness, axis=-1, direction="DESCENDING")
-
-        # If no limit requested, just return everything
-        if self.n_roi < 1:
-            self.n_roi = objectness.shape[1]
-
-        def batch_sort(arr, inds, n):
-            return tf.gather(tf.reshape(arr, (arr.shape[0], -1)), inds, batch_dims=1)[
-                :, :n
-            ]
-
-        # Sort things by objectness
-        xx = batch_sort(xx, argsort, self.n_roi)
-        yy = batch_sort(yy, argsort, self.n_roi)
-        ww = batch_sort(ww, argsort, self.n_roi)
-        hh = batch_sort(hh, argsort, self.n_roi)
-
-        if not image_coords:
-            output = tf.stack([xx, yy, ww, hh], axis=-1)
-            return output
-
-        # Convert to image plane
-        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
-        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
-        return tf.stack([x, y, w, h], axis=-1)
+        self.rpnmodel.fit(train_dataset, epochs=epochs)
 
     def save_rpn_state(self, filename):
         """
@@ -648,7 +695,7 @@ class RPNWrapper:
             Save path for the RPN model.
         """
 
-        tf.keras.models.save_model(self.rpn, filename)
+        tf.keras.models.save_model(self.rpnmodel, filename)
 
     def load_rpn_state(self, filename):
         """
@@ -658,4 +705,18 @@ class RPNWrapper:
             Load path for the RPN model.
         """
 
-        self.rpn = tf.keras.models.load_model(filename)
+        self.rpnmodel = tf.keras.models.load_model(filename)
+
+    def propose_regions(self, images, **kwargs):
+        """
+        Run the RPN in forward mode.
+
+        Arguments:
+
+        images : tf.tensor
+            Minibatch of images
+        **kwargs
+            Arguments to be handed down to RPNModel.call()
+        """
+
+        return self.rpnmodel(images, **kwargs)
