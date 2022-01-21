@@ -61,10 +61,6 @@ class DataLoader:
         ]
 
 
-# This class will be a wrapper for getting the full-sized images into the ML models
-# Intended to make things as atomic as possible for the high-level code
-
-
 class DataLoaderFull(DataLoader):
     def __init__(self, **kwargs):
         """
@@ -157,9 +153,6 @@ class DataLoaderFull(DataLoader):
         Decode the label defined in the dataset creation into a list
         of bounding boxes.
 
-        Assumes that the order of rows in the .npy file matches os.walk(),
-        which empirically seems to be the case.
-
         Arguments:
 
         label: tf.constant(int)
@@ -171,8 +164,6 @@ class DataLoaderFull(DataLoader):
 
 
 # This class returns a set of thumbnails that either do or do not have starfish.
-
-
 class DataLoaderThumbnail(DataLoader):
     def __init__(self, **kwargs):
         """
