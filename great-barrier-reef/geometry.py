@@ -1,7 +1,6 @@
 # Methods for general geometry methods (i.e. IoU calculations)
 # that don't belong in any specific class
 
-import numpy as np
 import tensorflow as tf
 
 
@@ -12,9 +11,9 @@ def calculate_IoU(a, b):
 
     Arguments:
 
-    a : length-4 array-like, or numpy array of dimension (4,N,M,...)
+    a : length-4 array-like, or tf.tensor of dimension (4,N,M,...)
         given as (xa, ya, wa, ha)
-    b : length-4 array-like, or numpy array of dimension (4,N,M,...)
+    b : length-4 array-like, or tf.tensor of dimension (4,N,M,...)
         given as (xb, yb, wb, hb)
 
     Returns:
@@ -23,12 +22,12 @@ def calculate_IoU(a, b):
 
     """
 
-    intersect = np.maximum(
+    intersect = tf.math.maximum(
         0,
-        np.minimum(a[0] + a[2], b[0] + b[2]) - np.maximum(a[0], b[0]),
-    ) * np.maximum(
+        tf.math.minimum(a[0] + a[2], b[0] + b[2]) - tf.math.maximum(a[0], b[0]),
+    ) * tf.math.maximum(
         0,
-        np.minimum(a[1] + a[3], b[1] + b[3]) - np.maximum(a[1], b[1]),
+        tf.math.minimum(a[1] + a[3], b[1] + b[3]) - tf.math.maximum(a[1], b[1]),
     )
     overlap = (a[2] * a[3]) + (b[2] * b[3]) - intersect
 

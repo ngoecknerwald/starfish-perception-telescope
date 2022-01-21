@@ -64,6 +64,7 @@ class Backbone:
         self.network.set_weights(local_network.get_weights())
         del local_network
 
+    @tf.function
     def feature_coords_to_image_coords(self, xx, yy):
         """
         Naively maps coordinates x,y in extracted feature space to
@@ -71,32 +72,33 @@ class Backbone:
 
         Arguments:
 
-        xx : int or numpy array
+        xx : tf.tensor
             Pixel coordinate in the feature map.
-        yy : int or numpy array
+        yy : tf.tensor
             Pixel corrdinate in the feature map.
         """
 
         return (
-            xx * float(self.input_shape[1] / self.output_shape[1]),
-            yy * float(self.input_shape[0] / self.output_shape[0]),
+            xx * (self.input_shape[1] / self.output_shape[1]),
+            yy * (self.input_shape[0] / self.output_shape[0]),
         )
 
+    @tf.function
     def image_coords_to_feature_coords(self, x, y):
         """
         Naively map coordinates in image space to feature space.
 
         Arguments:
 
-        x : int or numpy array
+        x : tf.tensor
             Pixel coordinate in the image map.
-        y : int or numpy array
+        y : tf.tensor
             Pixel corrdinate in the image map.
         """
 
         return (
-            x * float(self.output_shape[1] / self.input_shape[1]),
-            y * float(self.output_shape[0] / self.input_shape[0]),
+            x * (self.output_shape[1] / self.input_shape[1]),
+            y * (self.output_shape[0] / self.input_shape[0]),
         )
 
     def pretrain(
@@ -240,8 +242,8 @@ class Backbone_InceptionResNetV2(Backbone):
         )
 
         # The things connected to this model will need to know output geometry
-        self.input_shape = input_shape
-        self.output_shape = self.network.output_shape[1:]
+        self.input_shape = tf.constant(input_shape, dtype="float32")
+        self.output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
 
         # Fold the image preprocessing into the model
         self.extractor = tf.keras.Sequential(
@@ -278,8 +280,8 @@ class Backbone_VGG16(Backbone):
             pooling=None,
         )
 
-        self.input_shape = input_shape
-        self.output_shape = self.network.output_shape[1:]
+        self.input_shape = tf.constant(input_shape, dtype="float32")
+        self.output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
 
         # Fold the image preprocessing into the model
         # The different pretrained models expect different inputs, so propagate that into here
@@ -315,8 +317,8 @@ class Backbone_ResNet50(Backbone):
             pooling=None,
         )
 
-        self.input_shape = input_shape
-        self.output_shape = self.network.output_shape[1:]
+        self.input_shape = tf.constant(input_shape, dtype="float32")
+        self.output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
 
         # Fold the image preprocessing into the model
         # The different pretrained models expect different inputs, so propagate that into here
