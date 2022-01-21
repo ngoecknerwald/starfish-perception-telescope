@@ -31,14 +31,16 @@ def instantiate(backbone_type, init_args):
         raise ValueError("Argument backbone=%s is not recognized." % backbone_type)
 
 
-class Backbone(tf.Keras.Layer):
+class Backbone(tf.keras.layers.Layer):
     def __init__(self):
         """
         Superclass for different backbone models.
         """
+        super().__init__()
+
         self.extractor = None
-        self.input_shape = None
-        self.output_shape = None
+        self._input_shape = None
+        self._output_shape = None
 
     @tf.function
     def feature_coords_to_image_coords(self, xx, yy):
@@ -57,8 +59,8 @@ class Backbone(tf.Keras.Layer):
         print("Python interpreter in backbone.feature_coords_to_image_coords()")
 
         return (
-            xx * (self.input_shape[1] / self.output_shape[1]),
-            yy * (self.input_shape[0] / self.output_shape[0]),
+            xx * (self._input_shape[1] / self._output_shape[1]),
+            yy * (self._input_shape[0] / self._output_shape[0]),
         )
 
     @tf.function
@@ -77,8 +79,8 @@ class Backbone(tf.Keras.Layer):
         print("Python interpreter in backbone.image_coords_to_feature_coords()")
 
         return (
-            x * (self.output_shape[1] / self.input_shape[1]),
-            y * (self.output_shape[0] / self.input_shape[0]),
+            x * (self._output_shape[1] / self._input_shape[1]),
+            y * (self._output_shape[0] / self._input_shape[0]),
         )
 
     def call(self, x):
@@ -259,8 +261,8 @@ class Backbone_InceptionResNetV2(Backbone):
         )
 
         # The things connected to this model will need to know output geometry
-        self.input_shape = tf.constant(input_shape, dtype="float32")
-        self.output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
+        self._input_shape = tf.constant(input_shape, dtype="float32")
+        self._output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
 
         # Fold the image preprocessing into the model
         self.extractor = tf.keras.Sequential(
@@ -297,8 +299,8 @@ class Backbone_VGG16(Backbone):
             pooling=None,
         )
 
-        self.input_shape = tf.constant(input_shape, dtype="float32")
-        self.output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
+        self._input_shape = tf.constant(input_shape, dtype="float32")
+        self._output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
 
         # Fold the image preprocessing into the model
         # The different pretrained models expect different inputs, so propagate that into here
@@ -334,8 +336,8 @@ class Backbone_ResNet50(Backbone):
             pooling=None,
         )
 
-        self.input_shape = tf.constant(input_shape, dtype="float32")
-        self.output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
+        self._input_shape = tf.constant(input_shape, dtype="float32")
+        self._output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
 
         # Fold the image preprocessing into the model
         # The different pretrained models expect different inputs, so propagate that into here
