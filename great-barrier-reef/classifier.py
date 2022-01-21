@@ -21,9 +21,8 @@ class Classifier(tf.keras.Model):
 
         n_proposals : int
             Number of RoIs passed from the RPN to the output network.
-        dense_layers : int or list of int
-            Number of fully connected neurons in the dense layers before
-            the classification and bounding box regression steps.
+        dense_layers : int
+            Number of channels in the convolutional layer feeding into the dense layers.
         n_classes : int
             Number of classes (including background). For this application
             this will always be 2.
@@ -36,17 +35,13 @@ class Classifier(tf.keras.Model):
 
         # Record for posterity
         self.n_proposals = n_proposals
-        self.dense_layers = (
-            [dense_layers, dense_layers]
-            if isinstance(dense_layers, int)
-            else dense_layers
-        )
+        self.dense_layers = dense_layers
         self.n_classes = n_classes
         self.dropout = dropout
 
         # Instantiate network components
         self.conv1 = tf.keras.layers.Conv2D(
-            self.dense_layers[0], (1, 1), activation="relu"
+            self.dense_layers, (1, 1), activation="relu"
         )
         self.flatten = tf.keras.layers.Flatten()
         self.cls = tf.keras.layers.Dense(
@@ -71,8 +66,17 @@ class ClassifierWrapper:
         backbone,
         n_proposals,
         dense_layers=512,
-        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=1e-3, decay_steps=1000, decay_rate=0.9
+        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-3, 1e-4],
+        ),
+        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-4, 1e-5],
         ),
         class_dropout=0.2,
     ):
@@ -98,6 +102,7 @@ class ClassifierWrapper:
         self.backbone = backbone
         self.n_proposals = n_proposals
         self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
         self.dense_layers = dense_layers
 
         # Network and optimizer
@@ -107,7 +112,10 @@ class ClassifierWrapper:
             dense_layers=dense_layers,
         )
         self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=self.learning_rate, weight_decay=1e-4, momentum=0.9
+            learning_rate=self.learning_rate,
+            weight_decay=self.weight_decay,
+            momentum=0.9,
+            clipvalue=1e2,
         )
 
         # Loss calculations

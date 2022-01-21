@@ -67,8 +67,17 @@ class RPNWrapper:
         self,
         backbone,
         kernel_size=3,
-        learning_rate=tf.keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=1e-3, decay_steps=1000, decay_rate=0.9
+        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-3, 1e-4],
+        ),
+        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-4, 1e-5],
         ),
         anchor_stride=1,
         window_sizes=[2, 4],  # these must be divisible by 2
@@ -112,6 +121,7 @@ class RPNWrapper:
         self.backbone = backbone
         self.kernel_size = kernel_size
         self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
         self.anchor_stride = anchor_stride
         self.window_sizes = window_sizes
         self.filters = filters
@@ -135,7 +145,10 @@ class RPNWrapper:
 
         # Optimizer
         self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=self.learning_rate, weight_decay=1e-4, momentum=0.9
+            learning_rate=self.learning_rate,
+            weight_decay=self.weight_decay,
+            momentum=0.9,
+            clipvalue=1e2,
         )
 
         # Classification loss
@@ -259,7 +272,7 @@ class RPNWrapper:
             """
             Fill the list of ROIs with both positive and negative examples
 
-            Return (rpn_minibatch/images) samples (image number, xx, yy, hh, ww, {})
+            Return (rpn_minibatch/images) samples (image number, iyy, ixx, ik, {})
             corresponding to negative examples no matter what. This ensures that we
             have enough examples to fill out the RPN minibatch
 
@@ -284,7 +297,7 @@ class RPNWrapper:
                 ik = np.random.randint(self.k)
 
                 # Check if this is a valid negative RoI
-                if self.valid_mask[iyy, iyy, ik] and (
+                if self.valid_mask[iyy, ixx, ik] and (
                     len(this_label) == 0
                     or all(
                         [
@@ -293,8 +306,8 @@ class RPNWrapper:
                                 this_label,
                                 self.anchor_xx[iyy, ixx],
                                 self.anchor_yy[iyy, ixx],
-                                self.hh[ik],
                                 self.ww[ik],
+                                self.hh[ik],
                             )
                         ]
                     )
@@ -315,8 +328,8 @@ class RPNWrapper:
                         this_label,
                         self.anchor_xx,
                         self.anchor_yy,
-                        self.hh[ik],
                         self.ww[ik],
+                        self.hh[ik],
                     )
                     for ik in range(self.k)
                 ]
@@ -333,10 +346,6 @@ class RPNWrapper:
                 )
                 for j in range(pos_slice.shape[0]):
                     ik, iyy, ixx = pos_slice[j, :]
-                    xx = self.anchor_xx[iyy, ixx]
-                    yy = self.anchor_yy[iyy, ixx]
-                    hh = self.hh[ik]
-                    ww = self.ww[ik]
                     rois.append([i, iyy, ixx, ik, this_label[ilabel]])
 
         # Something has gone horribly wrong with collecting RoIs, so skip this training step
