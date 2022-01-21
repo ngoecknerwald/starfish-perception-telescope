@@ -181,16 +181,10 @@ class RPNModel(tf.keras.Model):
             if grad is not None
         )
 
-    ####################################################
-    #
-    # Begin not done
-    #
-    ####################################################
     def call(
         self,
-        input_image_or_features,
-        image_coords=False,
-        input_is_images=False,
+        data,
+        is_images=False,
     ):
         """
         Run the RPN in forward mode on a minibatch of images.
@@ -199,33 +193,27 @@ class RPNModel(tf.keras.Model):
 
         Arguments:
 
-        input_image_or_features : dataset minibatch
-            Set of image(s) to run through the network. Either features or images.
-        image_coords : bool
-            If True, returns objectness and coordinates in image space as numpy arrays.
-            Otherwise, returns output as a tensor in feature space coordinates for
-            feedforward to the rest of the network.
-        input_is_images : bool
-            Set to true to run the input through the backbone, otherwise assumes this
-            has already been done.
+        data : tf.tensor dataset minibatch
+            Set of image(s) or feature(s) to run through the network.
+        is_images : bool
+            Set to true to run the input through the backbone and return
+            regions in image coordinates, otherwise work entirely in feature space.
 
         Returns:
-        [image_coords = False]
+
+        if not is_images:
             Tensor of shape (batch_size, top, 4) with feature space
             coordinates (xx,yy,ww,hh)
-
-        [image_coords = True]
+        else:
             Tensor of shape (batch_size, top, 4) with image space
             coordinates (x,y,w,h)
         """
 
-        # Run the feature extractor and the RPN in forward mode, adding an additional
-        # image dimension if necessary
-
-        if input_is_images:
-            features = self.backbone.extractor(input_image_or_features)
+        # Run through the extractor if images
+        if is_images:
+            features = self.backbone(input_image_or_features)
         else:
-            features = input_image_or_features
+            features = data
 
         # Run through the RPN
         cls, bbox = self.rpn(features)
@@ -251,40 +239,31 @@ class RPNModel(tf.keras.Model):
         # Dimension for bbox is same as cls but ik follows
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
         # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
-        # Now cue the infinite magic numpy indexing
-        xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] - (
-            bbox[:, :, :, : self.k] * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
+        xx = self.anchor_xx[np.newaxis, :, :, tf.newaxis] - (
+            bbox[:, :, :, : self.k] * self.ww[tf.newaxis, tf.newaxis, tf.newaxis, :]
         )
-        yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] - (
+        yy = self.anchor_yy[tf.newaxis, :, :, tf.newaxis] - (
             bbox[:, :, :, self.k : 2 * self.k]
-            * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
+            * self.hh[tf.newaxis, tf.newaxis, tf.newaxis, :]
         )
-        ww = self.ww[np.newaxis, np.newaxis, np.newaxis, :] * geometry.safe_exp(
+        ww = self.ww[tf.newaxis, tf.newaxis, tf.newaxis, :] * geometry.safe_exp(
             bbox[:, :, :, 2 * self.k : 3 * self.k]
         )
-        hh = self.hh[np.newaxis, np.newaxis, np.newaxis, :] * geometry.safe_exp(
+        hh = self.hh[tf.newaxis, tf.newaxis, tf.newaxis, :] * geometry.safe_exp(
             bbox[:, :, :, 3 * self.k : 4 * self.k]
         )
 
         # Reshape to flatten along proposal dimension within an image
         argsort = tf.argsort(objectness, axis=-1, direction="DESCENDING")
 
-        # If no limit requested, just return everything
-        if self.n_roi < 1:
-            self.n_roi = objectness.shape[1]
-
-        def batch_sort(arr, inds, n):
-            return tf.gather(tf.reshape(arr, (arr.shape[0], -1)), inds, batch_dims=1)[
-                :, :n
-            ]
-
         # Sort things by objectness
-        xx = batch_sort(xx, argsort, self.n_roi)
-        yy = batch_sort(yy, argsort, self.n_roi)
-        ww = batch_sort(ww, argsort, self.n_roi)
-        hh = batch_sort(hh, argsort, self.n_roi)
+        xx = geometry.batch_sort(xx, argsort, self.n_roi)
+        yy = geometry.batch_sort(yy, argsort, self.n_roi)
+        ww = geometry.batch_sort(ww, argsort, self.n_roi)
+        hh = geometry.batch_sort(hh, argsort, self.n_roi)
 
-        if not image_coords:
+        # Return in feature space
+        if not is_images:
             output = tf.stack([xx, yy, ww, hh], axis=-1)
             return output
 
@@ -293,7 +272,12 @@ class RPNModel(tf.keras.Model):
         w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
         return tf.stack([x, y, w, h], axis=-1)
 
-    # Helper methods
+    ####################################################
+    #
+    # Begin not done
+    #
+    ####################################################
+
     @tf.function
     def _accumulate_roi(self, label_decode, image_minibatch):
         """

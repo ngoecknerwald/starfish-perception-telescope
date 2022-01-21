@@ -80,3 +80,14 @@ def safe_log(x):
     if x < 1.0:
         return tf.math.log(x)
     return x - 1.0
+
+
+@tf.function
+def batch_sort(arr, inds, n):
+    """
+    Sort a tensor arr by indices inds returning the first n
+    """
+
+    print("Python interpreter in geometry.batch_sort()")
+
+    return tf.gather(tf.reshape(arr, (arr.shape[0], -1)), inds, batch_dims=1)[:, :n]
