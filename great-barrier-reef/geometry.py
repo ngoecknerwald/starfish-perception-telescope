@@ -4,6 +4,7 @@
 import tensorflow as tf
 
 
+@tf.function
 def calculate_IoU(a, b):
     """
     Calculate the intersection over union for two boxes
@@ -22,11 +23,13 @@ def calculate_IoU(a, b):
 
     """
 
+    print("Python interpreter in geometry.calculate_Iou()")
+
     intersect = tf.math.maximum(
-        0,
+        0.0,
         tf.math.minimum(a[0] + a[2], b[0] + b[2]) - tf.math.maximum(a[0], b[0]),
     ) * tf.math.maximum(
-        0,
+        0.0,
         tf.math.minimum(a[1] + a[3], b[1] + b[3]) - tf.math.maximum(a[1], b[1]),
     )
     overlap = (a[2] * a[3]) + (b[2] * b[3]) - intersect
@@ -34,6 +37,7 @@ def calculate_IoU(a, b):
     return intersect / overlap
 
 
+@tf.function
 def safe_exp(x):
 
     """
@@ -46,14 +50,17 @@ def safe_exp(x):
 
     Arguments:
 
-    x : np.ndarray, float or tf.tensor
+    x : tf.tensor
         Input variables.
 
     """
 
+    print("Python interpreter in geometry.safe_exp()")
+
     return tf.nn.elu(x) + 1.0
 
 
+@tf.function
 def safe_log(x):
 
     """
@@ -61,7 +68,14 @@ def safe_log(x):
 
     log(x) : x < 1
     x - 1. x >= 1
+
+    Arguments:
+    x : tf.tensor of shape 0
+        Input variable
+
     """
+
+    print("Python interpreter in geometry.safe_log()")
 
     if x < 1.0:
         return tf.math.log(x)

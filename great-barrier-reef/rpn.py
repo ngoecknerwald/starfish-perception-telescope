@@ -47,25 +47,19 @@ class RPN(tf.keras.Model):
             activation="relu",
             padding="same",
         )
-        self.cls = tf.keras.layers.Conv2D(
-            filters=2 * self.k, kernel_size=1, strides=(1, 1)
-        )
-        self.bbox = tf.keras.layers.Conv2D(
-            filters=4 * self.k,
-            kernel_size=1,
-            strides=(1, 1),
-        )
         if self.dropout is not None:
             self.dropout1 = tf.keras.layers.Dropout(self.dropout)
+        self.cls_bbox = tf.keras.layers.Conv2D(
+            filters=6 * self.k, kernel_size=1, strides=(1, 1)
+        )
 
-    # Also TODO figure out if we want use generalized IoU instead of the L1 loss
+    # This needs to return a single variable to hand to the loss
+    # when we compile the model, so just concatenate cls and bbox
     def call(self, x, training=False):
         x = self.conv1(x)
         if hasattr(self, "dropout1") and training:
             x = self.dropout1(x)
-        cls = self.cls(x)
-        bbox = self.bbox(x)
-        return cls, bbox
+        return self.cls_bbox(x)
 
 
 class RPNWrapper:
@@ -128,7 +122,7 @@ class RPNWrapper:
         self.n_roi = n_roi
 
         # Anchor box sizes
-        self.build_anchor_boxes()
+        self._build_anchor_boxes()
 
         # Build the model
         self.rpn = RPN(
@@ -150,7 +144,7 @@ class RPNWrapper:
         # Regression loss terms
         self.bbox_reg_l1 = tf.keras.losses.Huber()
 
-    def build_anchor_boxes(self):
+    def _build_anchor_boxes(self):
         """
         Build the anchor box sizes in the feature space.
 
@@ -158,50 +152,63 @@ class RPNWrapper:
 
         # Make the list of window sizes
         hh, ww = np.meshgrid(self.window_sizes, self.window_sizes)
-        self.hh = tf.constant(hh.reshape(-1), dtype='float32')
-        self.ww = tf.constant(ww.reshape(-1), dtype='float32')
+        self.hh = tf.constant(hh.reshape(-1), dtype="float32")
+        self.ww = tf.constant(ww.reshape(-1), dtype="float32")
         self.k = len(self.window_sizes) ** 2
 
         # Need to refer the anchor points back to the feature space
-        self.anchor_xx, self.anchor_yy = np.meshgrid(
-            range(0, self.backbone.output_shape[1], self.anchor_stride),
-            range(0, self.backbone.output_shape[0], self.anchor_stride),
+        anchor_xx, anchor_yy = np.meshgrid(
+            range(
+                0,
+                tf.cast(self.backbone.output_shape[1], dtype="int32"),
+                self.anchor_stride,
+            ),
+            range(
+                0,
+                tf.cast(self.backbone.output_shape[0], dtype="int32"),
+                self.anchor_stride,
+            ),
         )
-        self.anchor_xx = tf.constant(self.anchor_xx, dtype='float32')
-        self.anchor_yy = tf.constant(self.anchor_yy, dtype='float32')
+        self.anchor_xx = tf.constant(anchor_xx, dtype="float32")
+        self.anchor_yy = tf.constant(anchor_yy, dtype="float32")
 
         # Mask off invalid RoI that cross the image boundary
-        self.valid_mask = np.logical_and(
-            np.logical_and(
-                self.anchor_xx[:, :, np.newaxis] >= 0,
-                self.anchor_yy[:, :, np.newaxis] >= 0,
+        self.valid_mask = tf.constant(
+            tf.math.logical_and(
+                tf.math.logical_and(
+                    self.anchor_xx[:, :, tf.newaxis] >= 0,
+                    self.anchor_yy[:, :, tf.newaxis] >= 0,
+                ),
+                tf.math.logical_and(
+                    self.anchor_xx[:, :, tf.newaxis]
+                    + self.ww[tf.newaxis, tf.newaxis, :]
+                    < self.backbone.output_shape[1],
+                    self.anchor_yy[:, :, tf.newaxis]
+                    + self.hh[tf.newaxis, tf.newaxis, :]
+                    < self.backbone.output_shape[0],
+                ),
             ),
-            np.logical_and(
-                self.anchor_xx[:, :, np.newaxis] + self.ww[np.newaxis, np.newaxis, :]
-                < self.backbone.output_shape[1],
-                self.anchor_yy[:, :, np.newaxis] + self.hh[np.newaxis, np.newaxis, :]
-                < self.backbone.output_shape[0],
-            ),
+            dtype="bool",
         )
 
-    def ground_truth_IoU(self, annotations, xx, yy, hh, ww):
+    @tf.function
+    def ground_truth_IoU(self, annotations, xx, yy, ww, hh):
         """
         Compute the ground truth IoU for a set of boxes defined in feature space.
         Note that xx,yy refers to the bottom left corner of the box, not the middle.
 
         Arguments:
 
-        annotations : list
-            List of annotations in the input format, i.e.
-            {'x': 406, 'y': 591, 'width': 57, 'height': 58}.
-        xx : numpy array
-            Pixel coordinate in the feature map.
-        yy : numpy array
-            Pixel corrdinate in the feature map.
-        ww : numpy array
-            Pixel corrdinate in the feature map.
-        hh : numpy array
-            Pixel coordinate in the feature map.
+        annotations : slice of tf.ragged.constant()
+            Tensor of shape (None, 4,) encoded [xywh] in image coordinates.
+        xx : tf.constant
+            Pixel coordinates in the feature map.
+        yy : tf.constant
+            Pixel corrdinates in the feature map.
+        ww : tf.constant
+            Pixel corrdinates in the feature map.
+        hh : tf.constant
+            Pixel coordinates in the feature map.
 
         Returns:
 
@@ -210,26 +217,20 @@ class RPNWrapper:
 
         """
 
+        print("Python interpreter in rpnwrapper.ground_truth_IoU")
+
         # Coordinates and area of the proposed region
         x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
         w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
-        proposal_box = (x, y, w, h)
+        proposal_box = tf.stack([x, y, w, h])
 
-        # Faster via list comprehension
-        return [
-            geometry.calculate_IoU(
-                proposal_box,
-                np.asarray(
-                    [
-                        annotation["x"],
-                        annotation["y"],
-                        annotation["width"],
-                        annotation["height"],
-                    ]
-                ),
-            )
-            for annotation in annotations
-        ]
+        # Return stacked tensor
+        return tf.stack(
+            [
+                geometry.calculate_IoU(proposal_box, annotations[i, :])
+                for i in range(annotations.shape[0])
+            ]
+        )
 
     # Method that will eventually belong to the RPNWrapper class
     def accumulate_roi(self, label_decode, image_minibatch):
@@ -360,6 +361,10 @@ class RPNWrapper:
 
         return rois
 
+    # Required signature is this, so let's
+    # work backwards. The rois needs to be a RaggedTensor
+    # custom_loss(y_actual,y_pred)
+    @tf.function
     def compute_loss(self, cls, bbox, rois):
 
         """
@@ -466,7 +471,7 @@ class RPNWrapper:
             if grad is not None
         )
 
-    def train_rpn(self, train_dataset, labelfunc, epochs=5):
+    def train_rpn(self, train_dataset, valid_dataset=None, epochs=5):
         """
         Main training loop iterating over a dataset.
 
@@ -475,34 +480,35 @@ class RPNWrapper:
         train_dataset: tensorflow dataset
             Dataset of input images. Minibatch size and validation
             split are determined when this is created.
-        labelfunc : function
-            Dictionary for translating the labels in to the dataset into
-            ground truth annotations, usually DataLoaderFull.decode_label
         epochs : int
             Number of epochs to run training for.
 
         """
 
+        # TODO do we need or want a validation here? That might be slow-ish.
+        valid_dataset
+        self.rpn.fit(train_dataset, epochs=epochs, validation_data=valid_dataset)
+
         # Training loop, all complexity is in training_step()
-        for epoch in range(epochs):
+        # for epoch in range(epochs):
 
-            print("RPN training epoch %d" % epoch, end="")
+        #   print("RPN training epoch %d" % epoch, end="")
 
-            for i, (train_x, label_x) in enumerate(train_dataset):
+        #   for i, (train_x, label_x) in enumerate(train_dataset):
 
-                # The dots were getting out of hand
-                if i % 100 == 0:
-                    print(".", end="")
+        # The dots were getting out of hand
+        #       if i % 100 == 0:
+        #           print(".", end="")
 
-                # Note that we could in theory fine-tune the method by moving the feature
-                # convolution by the backbone into the self.training_step() tf.GradientTape()
-                # block, but we are not doing that here.
-                features = self.backbone.extractor(train_x)
+        # Note that we could in theory fine-tune the method by moving the feature
+        # convolution by the backbone into the self.training_step() tf.GradientTape()
+        # block, but we are not doing that here.
+        #        features = self.backbone.extractor(train_x)
 
-                # Run gradient step with these features and the ground truth labels
-                self.training_step(features, [labelfunc(label) for label in label_x])
+        # Run gradient step with these features and the ground truth labels
+        #        self.training_step(features, [labelfunc(label) for label in label_x])
 
-            print("")
+        #    print("")
 
     @tf.function
     def propose_regions(
@@ -568,39 +574,36 @@ class RPNWrapper:
         # Need to unpack a bit and hit with softmax
         objectness_l0 = tf.reshape(objectness_l0, (objectness_l0.shape[0], -1))
         objectness_l1 = tf.reshape(objectness_l1, (objectness_l1.shape[0], -1))
-        objectness = tf.nn.softmax(
-            tf.stack([objectness_l0, objectness_l1]), axis=0
-        )
+        objectness = tf.nn.softmax(tf.stack([objectness_l0, objectness_l1]), axis=0)
 
         # Cut to the one-hot bit
         objectness = objectness[1, :, :]
 
         # Remove the invalid bounding boxes
-        objectness = tf.math.multiply(objectness, self.valid_mask.reshape(-1)[np.newaxis, :])
+        objectness = tf.math.multiply(
+            objectness, self.valid_mask.reshape(-1)[np.newaxis, :]
+        )
 
         # Dimension for bbox is same as cls but ik follows
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
         # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
         # Now cue the infinite magic numpy indexing
         xx = self.anchor_xx[np.newaxis, :, :, np.newaxis] - (
-            bbox[:, :, :, : self.k]
-            * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
+            bbox[:, :, :, : self.k] * self.ww[np.newaxis, np.newaxis, np.newaxis, :]
         )
         yy = self.anchor_yy[np.newaxis, :, :, np.newaxis] - (
             bbox[:, :, :, self.k : 2 * self.k]
             * self.hh[np.newaxis, np.newaxis, np.newaxis, :]
         )
-        ww = (
-            self.ww[np.newaxis, np.newaxis, np.newaxis, :]
-            * geometry.safe_exp(bbox[:, :, :, 2 * self.k : 3 * self.k])
+        ww = self.ww[np.newaxis, np.newaxis, np.newaxis, :] * geometry.safe_exp(
+            bbox[:, :, :, 2 * self.k : 3 * self.k]
         )
-        hh = (
-            self.hh[np.newaxis, np.newaxis, np.newaxis, :]
-            * geometry.safe_exp(bbox[:, :, :, 3 * self.k : 4 * self.k])
+        hh = self.hh[np.newaxis, np.newaxis, np.newaxis, :] * geometry.safe_exp(
+            bbox[:, :, :, 3 * self.k : 4 * self.k]
         )
 
         # Reshape to flatten along proposal dimension within an image
-        argsort = tf.argsort(objectness, axis=-1, direction='DESCENDING')
+        argsort = tf.argsort(objectness, axis=-1, direction="DESCENDING")
 
         # If no limit requested, just return everything
         if self.n_roi < 1:

@@ -55,6 +55,7 @@ class DataLoader:
         to be used in the annotation ragged tensor.
 
         """
+
         return [
             [a["x"], a["y"], a["width"], a["height"]]
             for a in json.loads(label.replace("'", '"'))
@@ -159,6 +160,8 @@ class DataLoaderFull(DataLoader):
             Image number from the (sorted) dataset. This is decoded to a set of bounding boxes.
 
         """
+
+        print("Python interpreter in DataLoader.decode_label()")
 
         return self.label_tensor[label]
 

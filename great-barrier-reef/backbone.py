@@ -78,6 +78,8 @@ class Backbone:
             Pixel corrdinate in the feature map.
         """
 
+        print("Python interpreter in backbone.feature_coords_to_image_coords()")
+
         return (
             xx * (self.input_shape[1] / self.output_shape[1]),
             yy * (self.input_shape[0] / self.output_shape[0]),
@@ -95,6 +97,8 @@ class Backbone:
         y : tf.tensor
             Pixel corrdinate in the image map.
         """
+
+        print("Python interpreter in backbone.image_coords_to_feature_coords()")
 
         return (
             x * (self.output_shape[1] / self.input_shape[1]),
