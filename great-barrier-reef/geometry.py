@@ -85,7 +85,9 @@ def safe_log(x):
 @tf.function
 def batch_sort(arr, inds, n):
     """
-    Sort a tensor arr by indices inds returning the first n
+    Sort a tensor arr by indices inds returning the first n.
+
+    Note that this rebuilds a computation graph when n changes.
     """
 
     print("Python interpreter in geometry.batch_sort()")

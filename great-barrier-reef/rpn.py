@@ -9,12 +9,8 @@ import numpy as np
 import warnings
 import geometry
 
-# Number of tries to find valid RoIs. Note that if this fails it is still
-# possible to successfully build a minibatch
-CUTOFF = 100
 
-
-class RPNLayer(tf.keras.Layer):
+class RPNLayer(tf.keras.layers.Layer):
     def __init__(self, k, kernel_size, anchor_stride, filters, dropout):
         """
         Class for the RPN consisting of a convolutional layer and two fully connected layers
@@ -57,6 +53,9 @@ class RPNLayer(tf.keras.Layer):
         )
 
     def call(self, x, training=False):
+
+        print("Python interpreter in RPNLayer.call()")
+
         x = self.conv1(x)
         if hasattr(self, "dropout1") and training:
             x = self.dropout1(x)
@@ -69,6 +68,7 @@ class RPNModel(tf.keras.Model):
     def __init__(
         self,
         backbone,
+        label_tensor,
         kernel_size,
         anchor_stride,
         window_sizes,
@@ -84,6 +84,8 @@ class RPNModel(tf.keras.Model):
 
         backbone : Backbone
             Knows input image and feature map sizes but is not directly trained here.
+        label_tensor : tf.constant
+            Labels for the training dataset.
         kernel_size : int
             Kernel size for the first convolutional layer in the RPN.
         anchor_stride : int
@@ -106,11 +108,12 @@ class RPNModel(tf.keras.Model):
             Number of regions to propose in forward pass. Pass -1 to return all.
         """
 
+        super().__init__()
+
         # Store the image size
         self.backbone = backbone
+        self.label_tensor = label_tensor
         self.kernel_size = kernel_size
-        self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
         self.anchor_stride = anchor_stride
         self.window_sizes = window_sizes
         self.filters = filters
@@ -153,14 +156,13 @@ class RPNModel(tf.keras.Model):
 
         """
 
-        # Unpack the images and ground truth annotations
-        images, labels = data
+        print("Python interpreter in RPNModel.train_step()")
 
         # Run the feature extractor
-        features = self.backbone(images)
+        features = self.backbone(data[0])
 
         # Accumulate RoI data
-        rois = self._accumulate_roi(labels, features.shape[0])
+        rois = self._accumulate_roi(tf.gather(self.label_tensor, data[1], axis=0), 4)
 
         # Compute loss
         with tf.GradientTape() as tape:
@@ -209,6 +211,8 @@ class RPNModel(tf.keras.Model):
             coordinates (x,y,w,h)
         """
 
+        print("Python interpreter in RPNModel.call()")
+
         # Run through the extractor if images
         if is_images:
             features = self.backbone(input_image_or_features)
@@ -233,7 +237,7 @@ class RPNModel(tf.keras.Model):
 
         # Remove the invalid bounding boxes
         objectness = tf.math.multiply(
-            objectness, self.valid_mask.reshape(-1)[np.newaxis, :]
+            objectness, self.valid_mask.reshape(-1)[tf.newaxis, :]
         )
 
         # Dimension for bbox is same as cls but ik follows
@@ -272,36 +276,34 @@ class RPNModel(tf.keras.Model):
         w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
         return tf.stack([x, y, w, h], axis=-1)
 
-    ####################################################
-    #
-    # Begin not done
-    #
-    ####################################################
-
     @tf.function
-    def _accumulate_roi(self, label_decode, image_minibatch):
+    def _accumulate_roi(self, label_minibatch, minibatch_size):
         """
         Make a list of RoIs of positive and negative examples
         and their corresponding ground truth annotations.
 
         Arguments:
 
-        label_decode : list of dicts
-            Decoded labels for this minibatch
-        image_minibatch : int
+        label_minibatch : tf.tensor
+            Tensor slice containing decoded labels for this minibatch.
+        minibatch_size : int
             Number of images in a minibatch.
 
         Returns:
 
-        list of [i, iyy, ixx, ik, {<label or empty>}] where variables
-        denote indices into the RPN output
+        tf.ragged.constant([[i, iyy, ixx, ik, [x,y,w,h]]])
+        or [[i, iyy, ixx, ik, []]] where variables
+        denote indices into the RPN output grid
 
         """
 
+        print("Python interpreter in RPNModel._accumulate_roi()")
+
         rois = []
+        maxcount = tf.cast((4 * self.rpn_minibatch) / minibatch_size, dtype="int32")
 
         # Now iterate over images in the minibatch
-        for i, this_label in enumerate(label_decode):
+        for i in range(minibatch_size):
             """
             Fill the list of ROIs with both positive and negative examples
 
@@ -317,69 +319,71 @@ class RPNModel(tf.keras.Model):
             tuning to keep the RPN from running away from the original definitions.
             """
 
-            # Fill in negative examples by random sampling
-            count = 0
-            for _ignore in range(CUTOFF):
-
-                if count >= self.rpn_minibatch / image_minibatch:
-                    break
+            for _ignore in range(maxcount):
 
                 # Pick one at random
-                ixx = np.random.randint(self.anchor_xx.shape[1])
-                iyy = np.random.randint(self.anchor_xx.shape[0])
-                ik = np.random.randint(self.k)
+                ixx = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[1]))[0]
+                iyy = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[0]))[0]
+                ik = tf.random.shuffle(tf.range(self.k))[0]
 
                 # Check if this is a valid negative RoI
-                if self.valid_mask[iyy, ixx, ik] and (
-                    len(this_label) == 0
-                    or all(
-                        [
-                            IoU < self.IoU_neg_threshold
-                            for IoU in self.ground_truth_IoU(
-                                this_label,
-                                self.anchor_xx[iyy, ixx],
-                                self.anchor_yy[iyy, ixx],
-                                self.ww[ik],
-                                self.hh[ik],
-                            )
-                        ]
+                if (
+                    self.valid_mask[iyy, ixx, ik]
+                    and tf.reduce_max(
+                        self._ground_truth_IoU(
+                            label_minibatch[i],
+                            self.anchor_xx[iyy, ixx],
+                            self.anchor_yy[iyy, ixx],
+                            self.ww[ik],
+                            self.hh[ik],
+                        )
                     )
+                    < self.IoU_neg_threshold
                 ):
-                    rois.append([i, iyy, ixx, ik, {}])
-                    count += 1
+                    keep = True
+                else:
+                    keep = False
 
+                if keep:
+                    rois.append([i, iyy, ixx, ik, None])
+
+        return rois
+
+        """
             # Short circuit if there are no starfish
-            if len(this_label) == 0:
-                continue
+            if tf.greater(tf.size(this_label), 0):
 
-            # If there are positive examples return the example with the highest IoU per example
-            # and any with IoU > threshold. First do the giant IoU calculation k times per annotation
-            # Axis dimensions are labels, k, yy, xx
-            ground_truth_IoU = np.stack(
-                [
-                    self.ground_truth_IoU(
-                        this_label,
-                        self.anchor_xx,
-                        self.anchor_yy,
-                        self.ww[ik],
-                        self.hh[ik],
-                    )
-                    for ik in range(self.k)
-                ]
-            ).swapaxes(0, 1)
+                # If there are positive examples return the example with the highest IoU per example
+                # and any with IoU > threshold. First do the giant IoU calculation k times per annotation
+                # Axis dimensions are labels, k, yy, xx
+                ground_truth_IoU = tf.stack(
+                    [
+                        self._ground_truth_IoU(
+                            this_label,
+                            self.anchor_xx,
+                            self.anchor_yy,
+                            self.ww[ik],
+                            self.hh[ik],
+                        )
+                        for ik in range(self.k)
+                    ]
+                ).swapaxes(0, 1)
 
-            # Acquire anything with IoU > self.IoU_pos_threshold
-            for ilabel in range(ground_truth_IoU.shape[0]):
-                pos_slice = np.argwhere(
-                    np.logical_or(
-                        ground_truth_IoU[ilabel, :, :, :] > self.IoU_pos_threshold,
-                        ground_truth_IoU[ilabel, :, :, :]
-                        == np.max(ground_truth_IoU[ilabel, :, :, :]),
+                print(ground_truth_IoU.shape)
+
+                # Acquire anything with IoU > self.IoU_pos_threshold
+                for ilabel in range(ground_truth_IoU.shape[0]):
+                    pos_slice = np.argwhere(
+                        np.logical_or(
+                            ground_truth_IoU[ilabel, :, :, :] > self.IoU_pos_threshold,
+                            ground_truth_IoU[ilabel, :, :, :]
+                            == np.max(ground_truth_IoU[ilabel, :, :, :]),
+                        )
                     )
-                )
-                for j in range(pos_slice.shape[0]):
-                    ik, iyy, ixx = pos_slice[j, :]
-                    rois.append([i, iyy, ixx, ik, this_label[ilabel]])
+                    for j in range(pos_slice.shape[0]):
+                        ik, iyy, ixx = pos_slice[j, :]
+                        rois.append([i, iyy, ixx, ik, this_label[ilabel]])
+
 
         # Something has gone horribly wrong with collecting RoIs, so skip this training step
         if len(rois) < self.rpn_minibatch:
@@ -402,6 +406,13 @@ class RPNModel(tf.keras.Model):
         )
 
         return rois
+        """
+
+        ####################################################
+        #
+        # End not done
+        #
+        ####################################################
 
     @tf.function
     def _compute_loss(self, cls, bbox, rois):
@@ -426,15 +437,16 @@ class RPNModel(tf.keras.Model):
             Output of accumulate_roi(), see training_step for use case.
         """
 
+        print("Python interpreter in RPNModel._compute_loss()")
+
+        # Sanity check
+        tf.debugging.assert_all_finite(cls)
+
         # First, compute the categorical cross entropy objectness loss
         cls_select = tf.nn.softmax(
             [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
         )
-        ground_truth = [[1, 0] if "x" not in roi[4].keys() else [0, 1] for roi in rois]
-
-        # Stop the training if we hit nan values
-        if np.any(np.logical_not(np.isfinite(cls_select.numpy()))):
-            raise ValueError("NaN detected in the RPN, aborting training.")
+        ground_truth = [[1, 0] if len(roi[4]) > 0 else [0, 1] for roi in rois]
 
         # Start with an L2 regularization
         loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
@@ -445,7 +457,7 @@ class RPNModel(tf.keras.Model):
         for roi in rois:
 
             # Compare anchor to ground truth
-            if "x" in roi[4].keys():
+            if len(roi[4]) > 0:
 
                 # Refer the corners of the bounding box back to image space
                 # Note that this assumes said mapping is linear.
@@ -458,10 +470,10 @@ class RPNModel(tf.keras.Model):
                     self.hh[roi[3]],
                 )
 
-                t_x_star = (x - roi[4]["x"]) / (w)
-                t_y_star = (y - roi[4]["y"]) / (h)
-                t_w_star = geometry.safe_log(roi[4]["width"] / (w))
-                t_h_star = geometry.safe_log(roi[4]["height"] / (h))
+                t_x_star = (x - roi[4][0]) / (w)
+                t_y_star = (y - roi[4][1]) / (h)
+                t_w_star = geometry.safe_log(roi[4][2] / (w))
+                t_h_star = geometry.safe_log(roi[4][3] / (h))
 
                 # Huber loss, which AFAIK is the same as smooth L1
                 loss += self.bbox_reg_l1(
@@ -471,17 +483,13 @@ class RPNModel(tf.keras.Model):
 
         return loss
 
-    ####################################################
-    #
-    # End not done
-    #
-    ####################################################
-
     def _build_anchor_boxes(self):
         """
         Build the anchor box sizes in the feature space.
 
         """
+
+        print("Python interpreter in RPNModel._build_anchor_boxes()")
 
         # Make the list of window sizes
         hh, ww = np.meshgrid(self.window_sizes, self.window_sizes)
@@ -493,17 +501,17 @@ class RPNModel(tf.keras.Model):
         anchor_xx, anchor_yy = tf.meshgrid(
             range(
                 0,
-                tf.cast(self.backbone.output_shape[1], dtype="int32"),
+                tf.cast(self.backbone._output_shape[1], dtype="int32"),
                 self.anchor_stride,
             ),
             range(
                 0,
-                tf.cast(self.backbone.output_shape[0], dtype="int32"),
+                tf.cast(self.backbone._output_shape[0], dtype="int32"),
                 self.anchor_stride,
             ),
         )
-        self.anchor_xx = tf.constant(anchor_xx, dtype="float32")
-        self.anchor_yy = tf.constant(anchor_yy, dtype="float32")
+        self.anchor_xx = tf.cast(anchor_xx, dtype="float32")
+        self.anchor_yy = tf.cast(anchor_yy, dtype="float32")
 
         # Mask off invalid RoI that cross the image boundary
         self.valid_mask = tf.constant(
@@ -515,10 +523,10 @@ class RPNModel(tf.keras.Model):
                 tf.math.logical_and(
                     self.anchor_xx[:, :, tf.newaxis]
                     + self.ww[tf.newaxis, tf.newaxis, :]
-                    < self.backbone.output_shape[1],
+                    < self.backbone._output_shape[1],
                     self.anchor_yy[:, :, tf.newaxis]
                     + self.hh[tf.newaxis, tf.newaxis, :]
-                    < self.backbone.output_shape[0],
+                    < self.backbone._output_shape[0],
                 ),
             ),
             dtype="bool",
@@ -537,9 +545,9 @@ class RPNModel(tf.keras.Model):
         xx : tf.constant
             Pixel coordinates in the feature map.
         yy : tf.constant
-            Pixel corrdinates in the feature map.
+            Pixel coordinates in the feature map.
         ww : tf.constant
-            Pixel corrdinates in the feature map.
+            Pixel coordinates in the feature map.
         hh : tf.constant
             Pixel coordinates in the feature map.
 
@@ -555,13 +563,14 @@ class RPNModel(tf.keras.Model):
         # Coordinates and area of the proposed region
         x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
         w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
+
         proposal_box = tf.stack([x, y, w, h])
 
-        # Return stacked tensor
+        # Return stacked tensor, could be a map_fn?
         return tf.stack(
             [
-                geometry.calculate_IoU(proposal_box, annotations[i, :])
-                for i in range(annotations.shape[0])
+                geometry.calculate_IoU(proposal_box, annotation)
+                for annotation in tf.unstack(annotations)
             ]
         )
 
@@ -571,6 +580,7 @@ class RPNWrapper:
     def __init__(
         self,
         backbone,
+        label_tensor,
         kernel_size=3,
         anchor_stride=1,
         window_sizes=[2, 4],  # these must be divisible by 2
@@ -600,6 +610,8 @@ class RPNWrapper:
 
         backbone : Backbone
             Knows input image and feature map sizes but is not directly trained here.
+        label_tensor : tf.constant
+            Labels for the training dataset.
         kernel_size : int
             Kernel size for the first convolutional layer in the RPN.
         anchor_stride : int
@@ -632,6 +644,7 @@ class RPNWrapper:
 
         self.rpnmodel = RPNModel(
             backbone,
+            label_tensor,
             kernel_size,
             anchor_stride,
             window_sizes,
@@ -643,12 +656,17 @@ class RPNWrapper:
             n_roi,
         )
 
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.momentum = momentum
+        self.clipvalue = clipvalue
+
         # Optimizer
         self.optimizer = tfa.optimizers.SGDW(
             learning_rate=self.learning_rate,
             weight_decay=self.weight_decay,
-            momentum=momentum,
-            clipvalue=clipvalue,
+            momentum=self.momentum,
+            clipvalue=self.clipvalue,
         )
 
         self.rpnmodel.compile(optimizer=self.optimizer)

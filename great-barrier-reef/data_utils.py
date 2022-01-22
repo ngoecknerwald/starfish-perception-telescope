@@ -38,28 +38,37 @@ class DataLoader:
 
         self.labels = pd.read_csv(os.path.join(self.input_file, "train.csv"))
 
-        # Make the labels a ragged tensor to be used in compiled models
+        # Make the labels a tensor to be used in compiled models
         # Indices are image #, annotation #, xywh
-        self.label_tensor = tf.ragged.constant(
+        # Note that ragged tensors blow things up in the computation
+        # graph later, for unclear reasons
+        self.label_tensor = tf.constant(
             [
-                self.label_to_ragged(annotation)
+                self.label_to_tensor(annotation)
                 for annotation in self.labels["annotations"]
             ],
             dtype="float32",
         )
 
     @staticmethod
-    def label_to_ragged(label):
+    def label_to_tensor(label, max_annotations=32):
         """
         Convert the annotation string format to a nested list
-        to be used in the annotation ragged tensor.
+        to be used in the annotation constant tensor.
 
         """
-
-        return [
+        annotations = [
             [a["x"], a["y"], a["width"], a["height"]]
             for a in json.loads(label.replace("'", '"'))
         ]
+
+        return (
+            annotations
+            + [
+                [0, 0, 0, 0],
+            ]
+            * (max_annotations - len(annotations))
+        )
 
 
 class DataLoaderFull(DataLoader):

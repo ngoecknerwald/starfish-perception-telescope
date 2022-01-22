@@ -59,8 +59,8 @@ class Backbone(tf.keras.layers.Layer):
         print("Python interpreter in backbone.feature_coords_to_image_coords()")
 
         return (
-            xx * (self._input_shape[1] / self._output_shape[1]),
-            yy * (self._input_shape[0] / self._output_shape[0]),
+            xx * self._input_shape[1] / self._output_shape[1],
+            yy * self._input_shape[0] / self._output_shape[0],
         )
 
     @tf.function
@@ -79,8 +79,8 @@ class Backbone(tf.keras.layers.Layer):
         print("Python interpreter in backbone.image_coords_to_feature_coords()")
 
         return (
-            x * (self._output_shape[1] / self._input_shape[1]),
-            y * (self._output_shape[0] / self._input_shape[0]),
+            x * self._output_shape[1] / self._input_shape[1],
+            y * self._output_shape[0] / self._input_shape[0],
         )
 
     def call(self, x):
