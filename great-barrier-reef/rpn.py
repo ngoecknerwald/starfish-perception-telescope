@@ -279,7 +279,7 @@ class RPNModel(tf.keras.Model):
         return tf.stack([x, y, w, h], axis=-1)
 
     @tf.function
-    def _accumulate_roi(self, label_minibatch, minibatch_size):
+    def _accumulate_roi(self, labels, minibatch_size):
         """
         Make a list of RoIs of positive and negative examples
         and their corresponding ground truth annotations.
@@ -287,7 +287,7 @@ class RPNModel(tf.keras.Model):
         Arguments:
 
         label_minibatch : tf.tensor
-            Tensor slice containing decoded labels for this minibatch.
+            Tensor slice containing decoded labels for a single image
         minibatch_size : int
             Number of images in a minibatch.
 
@@ -301,94 +301,95 @@ class RPNModel(tf.keras.Model):
 
         print("Python interpreter in RPNModel._accumulate_roi()")
 
-        rois = []
         maxcount = tf.cast((10 * self.rpn_minibatch) / minibatch_size, dtype="int32")
 
         # Now iterate over images in the minibatch
-        for i in range(minibatch_size):
-            """
-            Fill the list of ROIs with both positive and negative examples
 
-            Return (rpn_minibatch/images) samples (image number, iyy, ixx, ik, {})
-            corresponding to negative examples no matter what. This ensures that we
-            have enough examples to fill out the RPN minibatch
-
-            For each ground truth positive in label_decode append
-            a) The best IoU as a positive
-            b) Any region proposal with IoU > self.IoU_threshold
-
-            Note that we are doing this with the box definitions without
-            tuning to keep the RPN from running away from the original definitions.
-            """
-
-            for _ignore in range(maxcount):
-
-                # Pick one at random
-                ixx = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[1]))[0]
-                iyy = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[0]))[0]
-                ik = tf.random.shuffle(tf.range(self.k))[0]
-
-                # Check if this is a valid negative RoI
-                if (
-                    self.valid_mask[iyy, ixx, ik]
-                    and tf.reduce_max(
-                        self._ground_truth_IoU(
-                            label_minibatch[i],
-                            self.anchor_xx[iyy, ixx],
-                            self.anchor_yy[iyy, ixx],
-                            self.ww[ik],
-                            self.hh[ik],
-                        )
-                    )
-                    < self.IoU_neg_threshold
-                ):
-                    keep = True
-                else:
-                    keep = False
-
-                if keep:
-                    rois.append([i, iyy, ixx, ik, None])
-
-        return rois
-
+        rois = []
         """
-            # Short circuit if there are no starfish
-            if tf.greater(tf.size(this_label), 0):
+        Fill the list of ROIs with both positive and negative examples
 
-                # If there are positive examples return the example with the highest IoU per example
-                # and any with IoU > threshold. First do the giant IoU calculation k times per annotation
-                # Axis dimensions are labels, k, yy, xx
-                ground_truth_IoU = tf.stack(
-                    [
-                        self._ground_truth_IoU(
-                            this_label,
-                            self.anchor_xx,
-                            self.anchor_yy,
-                            self.ww[ik],
-                            self.hh[ik],
-                        )
-                        for ik in range(self.k)
-                    ]
-                ).swapaxes(0, 1)
+        Return (rpn_minibatch/images) samples (image number, iyy, ixx, ik, {})
+        corresponding to negative examples no matter what. This ensures that we
+        have enough examples to fill out the RPN minibatch
 
-                print(ground_truth_IoU.shape)
+        For each ground truth positive in label_decode append
+        a) The best IoU as a positive
+        b) Any region proposal with IoU > self.IoU_threshold
 
-                # Acquire anything with IoU > self.IoU_pos_threshold
-                for ilabel in range(ground_truth_IoU.shape[0]):
-                    pos_slice = np.argwhere(
-                        np.logical_or(
-                            ground_truth_IoU[ilabel, :, :, :] > self.IoU_pos_threshold,
-                            ground_truth_IoU[ilabel, :, :, :]
-                            == np.max(ground_truth_IoU[ilabel, :, :, :]),
-                        )
+        Note that we are doing this with the box definitions without
+        tuning to keep the RPN from running away from the original definitions.
+        """
+        rxx = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[1]))
+        ryy = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[0]))
+        rk = tf.random.shuffle(tf.range(self.k))
+
+        for c in range(maxcount):
+
+            bbox = (self.anchor_xx[ryy[c], rxx[c]],
+                    self.anchor_yy[ryy[c], rxx[c]],
+                    self.ww[rk[c]], self.hh[rk[c]])
+
+            # Check if this is a valid negative RoI
+            if (
+                self.valid_mask[ryy[c], rxx[c], rk[c]]
+                and tf.reduce_max(
+                    self._ground_truth_IoU(
+                        label_minibatch[i],
+                        *bbox
                     )
-                    for j in range(pos_slice.shape[0]):
-                        ik, iyy, ixx = pos_slice[j, :]
-                        rois.append([i, iyy, ixx, ik, this_label[ilabel]])
+                )
+                < self.IoU_neg_threshold
+            ):
+                rois.append(tf.stack([*bbox, 0., 0., 0., 0.]))
+
+        # Short circuit if there are no starfish
+        if tf.math.count_nonzero(labels):
+
+            # Select starfish from label tensor
+            starfish = labels[tf.math.count_nonzero(labels, axis=1) > 0]
+
+            # If there are positive examples return the example with the highest IoU per example
+            # and any with IoU > threshold. First do the giant IoU calculation k times per annotation
+            # Axis dimensions are labels, k, yy, xx
+            ground_truth_IoU = tf.stack(
+                [
+                    self._ground_truth_IoU(
+                        starfish,
+                        self.anchor_xx,
+                        self.anchor_yy,
+                        self.ww[ik] * tf.ones(self.anchor_xx.shape),
+                        self.hh[ik] * tf.ones(self.anchor_yy.shape),
+                    )
+                    for ik in range(self.k)
+                ],
+                axis=1,
+            )
+
+            print(ground_truth_IoU.shape)
+            # ground_truth_IoU = (len(starfish), self.k, feature_size[0], feature_size[1])
+
+            # Acquire anything with IoU > self.IoU_pos_threshold
+            for ilabel in range(ground_truth_IoU.shape[0]):
+                pos_slice = tf.where(
+                    tf.logical_or(
+                        ground_truth_IoU[ilabel, :, :, :] > self.IoU_pos_threshold,
+                        ground_truth_IoU[ilabel, :, :, :]
+                        == tf.reduce_max(ground_truth_IoU[ilabel, :, :, :]),
+                    )
+                )
+                #pos_slice has shape(npos, 3)
+                for j in range(pos_slice.shape[0]):
+                    xx = self.anchor_xx[pos_slice[j,1], pos_slice[j,2]]
+                    yy = self.anchor_yy[pos_slice[j,1], pos_slice[j,2]]
+                    ww = self.ww[pos_slice[j,0]]
+                    hh = self.hh[pos_slice[j,0]]
+                    bbox = tf.stack([xx,yy,ww,hh])
+                    rois.append(tf.concat([bbox, starfish[ilabel]], axis=0))
 
 
         # Something has gone horribly wrong with collecting RoIs, so skip this training step
-        if len(rois) < self.rpn_minibatch:
+        if len(rois) < self.rpn_minibatch/minibatch_size:
             warnings.warn(
                 "Something has gone wrong with collecting minibatch RoIs, skip training step."
             )
@@ -399,16 +400,15 @@ class RPNModel(tf.keras.Model):
         # box + a small perturbation to randomly sample
         rois = sorted(
             rois,
-            key=lambda roi: 1.0 * float("x" not in roi[-1].keys())
+            key=lambda roi: 1.0 * (tf.math.count_nonzero(roi[4:]) > 0)
             + 0.001 * np.random.random(),
         )
         rois = (
-            rois[: int(self.rpn_minibatch / 2)]
-            + rois[-1 * int(self.rpn_minibatch / 2) :]
+            rois[: int(self.rpn_minibatch/minibatch_size/2)]
+            + rois[-1 * int(self.rpn_minibatch/minibatch_size/2) :]
         )
 
-        return rois
-        """
+        return tf.stack(rois, axis=0) 
 
     @tf.function
     def _compute_loss(self, cls, bbox, rois):
