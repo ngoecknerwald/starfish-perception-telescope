@@ -165,14 +165,14 @@ class DataLoaderFull(DataLoader):
 
         Arguments:
 
-        label: tf.constant(int)
-            Image number from the (sorted) dataset. This is decoded to a set of bounding boxes.
+        label: tf.tensor(int32)
+          Index tensor of size (batch, ) from the (sorted) dataset. This is decoded to a set of bounding boxes.
 
         """
 
         print("Python interpreter in DataLoader.decode_label()")
 
-        return self.label_tensor[label]
+        return tf.gather(self.label_tensor, label)
 
 
 # This class returns a set of thumbnails that either do or do not have starfish.

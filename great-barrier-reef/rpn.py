@@ -163,14 +163,14 @@ class RPNModel(tf.keras.Model):
 
         # Accumulate RoI data
         rois = self._accumulate_roi(
-            tf.map_fn(self.label_decoder, data[1]), 4
+          self.label_decoder(data[1]), 4
         )  # TODO figure out how to get this 4 down
 
         # Compute loss
         with tf.GradientTape() as tape:
 
             # Call the RPN
-            cls, bbox = self.rpnlayer(features, training=True)
+            cls, bbox = self.rpn(features, training=True)
 
             # Compute the loss using the classification scores and bounding boxes
             loss = self.compute_loss(cls, bbox, rois)
