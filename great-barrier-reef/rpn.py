@@ -68,7 +68,7 @@ class RPNModel(tf.keras.Model):
     def __init__(
         self,
         backbone,
-        label_tensor,
+        label_decoder,
         kernel_size,
         anchor_stride,
         window_sizes,
@@ -84,8 +84,8 @@ class RPNModel(tf.keras.Model):
 
         backbone : Backbone
             Knows input image and feature map sizes but is not directly trained here.
-        label_tensor : tf.constant
-            Labels for the training dataset.
+        label_decoder : tf.function
+            Method to decode the training dataset labels.
         kernel_size : int
             Kernel size for the first convolutional layer in the RPN.
         anchor_stride : int
@@ -112,7 +112,7 @@ class RPNModel(tf.keras.Model):
 
         # Store the image size
         self.backbone = backbone
-        self.label_tensor = label_tensor
+        self.label_decoder = label_decoder
         self.kernel_size = kernel_size
         self.anchor_stride = anchor_stride
         self.window_sizes = window_sizes
@@ -162,7 +162,9 @@ class RPNModel(tf.keras.Model):
         features = self.backbone(data[0])
 
         # Accumulate RoI data
-        rois = self._accumulate_roi(tf.gather(self.label_tensor, data[1], axis=0), 4)
+        rois = self._accumulate_roi(
+            tf.map_fn(self.label_decoder, data[1]), 4
+        )  # TODO figure out how to get this 4 down
 
         # Compute loss
         with tf.GradientTape() as tape:
@@ -300,7 +302,7 @@ class RPNModel(tf.keras.Model):
         print("Python interpreter in RPNModel._accumulate_roi()")
 
         rois = []
-        maxcount = tf.cast((4 * self.rpn_minibatch) / minibatch_size, dtype="int32")
+        maxcount = tf.cast((10 * self.rpn_minibatch) / minibatch_size, dtype="int32")
 
         # Now iterate over images in the minibatch
         for i in range(minibatch_size):
@@ -408,12 +410,6 @@ class RPNModel(tf.keras.Model):
         return rois
         """
 
-        ####################################################
-        #
-        # End not done
-        #
-        ####################################################
-
     @tf.function
     def _compute_loss(self, cls, bbox, rois):
 
@@ -482,6 +478,12 @@ class RPNModel(tf.keras.Model):
                 )
 
         return loss
+
+        ####################################################
+        #
+        # End not done
+        #
+        ####################################################
 
     def _build_anchor_boxes(self):
         """
@@ -580,7 +582,7 @@ class RPNWrapper:
     def __init__(
         self,
         backbone,
-        label_tensor,
+        label_decoder,
         kernel_size=3,
         anchor_stride=1,
         window_sizes=[2, 4],  # these must be divisible by 2
@@ -610,8 +612,8 @@ class RPNWrapper:
 
         backbone : Backbone
             Knows input image and feature map sizes but is not directly trained here.
-        label_tensor : tf.constant
-            Labels for the training dataset.
+        label_decoder : tf.function
+            Method to decode the training dataset labels.
         kernel_size : int
             Kernel size for the first convolutional layer in the RPN.
         anchor_stride : int
@@ -644,7 +646,7 @@ class RPNWrapper:
 
         self.rpnmodel = RPNModel(
             backbone,
-            label_tensor,
+            label_decoder,
             kernel_size,
             anchor_stride,
             window_sizes,
