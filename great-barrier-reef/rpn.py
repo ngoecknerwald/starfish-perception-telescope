@@ -8,6 +8,7 @@ import tensorflow_addons as tfa
 import numpy as np
 import warnings
 import geometry
+from functools import partial
 
 
 class RPNLayer(tf.keras.layers.Layer):
@@ -162,9 +163,12 @@ class RPNModel(tf.keras.Model):
         features = self.backbone(data[0])
 
         # Accumulate RoI data
-        rois = self._accumulate_roi(
-          self.label_decoder(data[1]), 4
-        )  # TODO figure out how to get this 4 down
+        labels = self.label_decoder(data[1])
+
+        rois = tf.map_fn(
+                partial(self._accumulate_roi, minibatch_size = labels.shape[0]),
+                labels
+                )
 
         # Compute loss
         with tf.GradientTape() as tape:
@@ -324,6 +328,9 @@ class RPNModel(tf.keras.Model):
         ryy = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[0]))
         rk = tf.random.shuffle(tf.range(self.k))
 
+        # Select starfish from label tensor
+        starfish = labels[tf.math.count_nonzero(labels, axis=1) > 0]
+
         for c in range(maxcount):
 
             bbox = (self.anchor_xx[ryy[c], rxx[c]],
@@ -335,7 +342,7 @@ class RPNModel(tf.keras.Model):
                 self.valid_mask[ryy[c], rxx[c], rk[c]]
                 and tf.reduce_max(
                     self._ground_truth_IoU(
-                        label_minibatch[i],
+                        starfish,
                         *bbox
                     )
                 )
@@ -346,8 +353,6 @@ class RPNModel(tf.keras.Model):
         # Short circuit if there are no starfish
         if tf.math.count_nonzero(labels):
 
-            # Select starfish from label tensor
-            starfish = labels[tf.math.count_nonzero(labels, axis=1) > 0]
 
             # If there are positive examples return the example with the highest IoU per example
             # and any with IoU > threshold. First do the giant IoU calculation k times per annotation
@@ -373,9 +378,9 @@ class RPNModel(tf.keras.Model):
             for ilabel in range(ground_truth_IoU.shape[0]):
                 pos_slice = tf.where(
                     tf.logical_or(
-                        ground_truth_IoU[ilabel, :, :, :] > self.IoU_pos_threshold,
-                        ground_truth_IoU[ilabel, :, :, :]
-                        == tf.reduce_max(ground_truth_IoU[ilabel, :, :, :]),
+                        ground_truth_IoU[ilabel] > self.IoU_pos_threshold,
+                        ground_truth_IoU[ilabel]
+                        == tf.reduce_max(ground_truth_IoU[ilabel]),
                     )
                 )
                 #pos_slice has shape(npos, 3)
