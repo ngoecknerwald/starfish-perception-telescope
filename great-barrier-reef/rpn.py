@@ -333,19 +333,17 @@ class RPNModel(tf.keras.Model):
             # If there are positive examples return the example with the highest IoU per example
             # and any with IoU > threshold. First do the giant IoU calculation k times per annotation
             # Axis dimensions are labels, k, yy, xx
-            ground_truth_IoU = tf.stack(
-                [
-                    self._ground_truth_IoU(
+            def anchor_IoU(ik):
+                return self._ground_truth_IoU(
                         starfish,
                         self.anchor_xx,
                         self.anchor_yy,
                         self.ww[ik] * tf.ones(self.anchor_xx.shape),
                         self.hh[ik] * tf.ones(self.anchor_yy.shape),
                     )
-                    for ik in tf.range(self.k)
-                ],
-                axis=1,
-            )
+
+            ground_truth_IoU = tf.map_fn(anchor_IoU, tf.range(self.k))
+            ground_truth_IoU = tf.transpose(ground_truth_IoU, perm=[1,0,2,3])
 
             print(ground_truth_IoU.shape)
             # ground_truth_IoU = (len(starfish), self.k, feature_size[0], feature_size[1])
