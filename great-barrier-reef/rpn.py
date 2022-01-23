@@ -331,7 +331,7 @@ class RPNModel(tf.keras.Model):
         # Select starfish from label tensor
         starfish = labels[tf.math.count_nonzero(labels, axis=1) > 0]
 
-        for c in range(maxcount):
+        for c in tf.range(maxcount):
 
             bbox = (self.anchor_xx[ryy[c], rxx[c]],
                     self.anchor_yy[ryy[c], rxx[c]],
@@ -351,8 +351,7 @@ class RPNModel(tf.keras.Model):
                 rois.append(tf.stack([*bbox, 0., 0., 0., 0.]))
 
         # Short circuit if there are no starfish
-        if tf.math.count_nonzero(labels):
-
+        if starfish:
 
             # If there are positive examples return the example with the highest IoU per example
             # and any with IoU > threshold. First do the giant IoU calculation k times per annotation
@@ -366,7 +365,7 @@ class RPNModel(tf.keras.Model):
                         self.ww[ik] * tf.ones(self.anchor_xx.shape),
                         self.hh[ik] * tf.ones(self.anchor_yy.shape),
                     )
-                    for ik in range(self.k)
+                    for ik in tf.range(self.k)
                 ],
                 axis=1,
             )
@@ -375,7 +374,7 @@ class RPNModel(tf.keras.Model):
             # ground_truth_IoU = (len(starfish), self.k, feature_size[0], feature_size[1])
 
             # Acquire anything with IoU > self.IoU_pos_threshold
-            for ilabel in range(ground_truth_IoU.shape[0]):
+            for ilabel in tf.range(ground_truth_IoU.shape[0]):
                 pos_slice = tf.where(
                     tf.logical_or(
                         ground_truth_IoU[ilabel] > self.IoU_pos_threshold,
@@ -384,7 +383,7 @@ class RPNModel(tf.keras.Model):
                     )
                 )
                 #pos_slice has shape(npos, 3)
-                for j in range(pos_slice.shape[0]):
+                for j in tf.range(pos_slice.shape[0]):
                     xx = self.anchor_xx[pos_slice[j,1], pos_slice[j,2]]
                     yy = self.anchor_yy[pos_slice[j,1], pos_slice[j,2]]
                     ww = self.ww[pos_slice[j,0]]
