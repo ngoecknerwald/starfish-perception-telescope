@@ -297,9 +297,10 @@ class RPNModel(tf.keras.Model):
 
         Returns:
 
-        tf.ragged.constant([[i, iyy, ixx, ik, [x,y,w,h]]])
-        or [[i, iyy, ixx, ik, []]] where variables
-        denote indices into the RPN output grid
+        tf.tensor of shape (self.rpn_minibatch / minibatch_size, 8)
+        The first 4 coordinates are (xx,yy,ww,hh) for the RoI.
+        The last 4 coordinates are (x,y,w,h) for the ground truth box, 
+        or (0,0,0,0) if the RoI is not associated with any ground truth.
 
         """
 
@@ -312,13 +313,11 @@ class RPNModel(tf.keras.Model):
         """
         Fill the list of ROIs with both positive and negative examples
 
-        Return (rpn_minibatch/images) samples (image number, iyy, ixx, ik, {})
-        corresponding to negative examples no matter what. This ensures that we
-        have enough examples to fill out the RPN minibatch
-
         For each ground truth positive in label_decode append
         a) The best IoU as a positive
         b) Any region proposal with IoU > self.IoU_threshold
+
+        Afterwards, fill up the list with negative RoI up to a specified size.
 
         Note that we are doing this with the box definitions without
         tuning to keep the RPN from running away from the original definitions.
@@ -371,15 +370,16 @@ class RPNModel(tf.keras.Model):
         ryy = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[0]))
         rk = tf.random.shuffle(tf.range(self.k))
 
+        i = tf.constant(0.)
         while tf.math.less(i_roi, n_roi):
 
-            bbox = (self.anchor_xx[ryy[i_roi], rxx[i_roi]],
-                    self.anchor_yy[ryy[i_roi], rxx[i_roi]],
-                    self.ww[rk[i_roi]], self.hh[rk[i_roi]])
+            bbox = (self.anchor_xx[ryy[i], rxx[i]],
+                    self.anchor_yy[ryy[i], rxx[i]],
+                    self.ww[rk[i]], self.hh[rk[i]])
 
             # Check if this is a valid negative RoI
             if (
-                self.valid_mask[ryy[i_roi], rxx[i_roi], rk[i_roi]]
+                self.valid_mask[ryy[i], rxx[i], rk[i]]
                 and tf.reduce_max(
                     self._ground_truth_IoU(
                         starfish,
@@ -391,7 +391,9 @@ class RPNModel(tf.keras.Model):
                 rois = rois.write(i_roi, tf.stack([*bbox, 0., 0., 0., 0.]))
                 i_roi += 1
 
-        return tf.gather(rois, tf.range(n_roi))
+            i += 1
+
+        return rois.stack()
 
     @tf.function
     def _compute_loss(self, cls, bbox, rois):
