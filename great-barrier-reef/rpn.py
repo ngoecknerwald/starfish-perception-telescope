@@ -305,7 +305,7 @@ class RPNModel(tf.keras.Model):
 
         print("Python interpreter in RPNModel._accumulate_roi()")
 
-        n_roi = tf.constant(self.rpn_minibatch / minibatch_size)
+        n_roi = tf.cast(self.rpn_minibatch / minibatch_size, "int32")
 
         rois = tf.TensorArray(tf.float32, size=n_roi)
 
@@ -328,7 +328,7 @@ class RPNModel(tf.keras.Model):
 
         i_roi = tf.constant(0)
 
-        if starfish:
+        if tf.size(starfish) > 0:
 
             # If there are positive examples return the example with the highest IoU per example
             # and any with IoU > threshold. First do the giant IoU calculation k times per annotation
@@ -373,7 +373,7 @@ class RPNModel(tf.keras.Model):
         ryy = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[0]))
         rk = tf.random.shuffle(tf.range(self.k))
 
-        while tf.math.less(i_roi, n_roi)
+        while tf.math.less(i_roi, n_roi):
 
             bbox = (self.anchor_xx[ryy[c], rxx[c]],
                     self.anchor_yy[ryy[c], rxx[c]],
