@@ -375,13 +375,13 @@ class RPNModel(tf.keras.Model):
 
         while tf.math.less(i_roi, n_roi):
 
-            bbox = (self.anchor_xx[ryy[c], rxx[c]],
-                    self.anchor_yy[ryy[c], rxx[c]],
-                    self.ww[rk[c]], self.hh[rk[c]])
+            bbox = (self.anchor_xx[ryy[i_roi], rxx[i_roi]],
+                    self.anchor_yy[ryy[i_roi], rxx[i_roi]],
+                    self.ww[rk[i_roi]], self.hh[rk[i_roi]])
 
             # Check if this is a valid negative RoI
             if (
-                self.valid_mask[ryy[c], rxx[c], rk[c]]
+                self.valid_mask[ryy[i_roi], rxx[i_roi], rk[i_roi]]
                 and tf.reduce_max(
                     self._ground_truth_IoU(
                         starfish,
