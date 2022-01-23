@@ -554,12 +554,10 @@ class RPNModel(tf.keras.Model):
         proposal_box = tf.stack([x, y, w, h])
 
         # Return stacked tensor, could be a map_fn?
-        return tf.stack(
-            [
-                geometry.calculate_IoU(proposal_box, annotation)
-                for annotation in tf.unstack(annotations)
-            ]
-        )
+        def get_IoU(annotation):
+            return geometry.calculate_IoU(proposal_box, annotation)
+
+        return tf.map_fn(get_IoU, annotations)
 
 
 # Just like the old wrapper class, doesn't extend anything from keras
