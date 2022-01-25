@@ -6,9 +6,7 @@
 import tensorflow as tf
 import tensorflow_addons as tfa
 import numpy as np
-import warnings
 import geometry
-from functools import partial
 
 
 class RPNLayer(tf.keras.layers.Layer):
@@ -74,11 +72,10 @@ class RPNModel(tf.keras.Model):
         anchor_stride,
         window_sizes,
         filters,
-        rpn_minibatch,
+        roi_minibatch_per_image,
+        n_roi_output,
         IoU_neg_threshold,
-        IoU_pos_threshold,
         rpn_dropout,
-        n_roi,
     ):
         """
         Initialize the RPN model for pretraining.
@@ -97,16 +94,14 @@ class RPNModel(tf.keras.Model):
         filters: int
             Number of filters between the convolutional layer
             and the fully connected layers in the RPN.
-        rpn_minibatch : int
-            Number of RoIs to use ( = positive + negative) per gradient step in the RPN.
+        roi_minibatch_per_image : int
+            Number of RoIs to use ( = positive + negative) per image per gradient step in the RPN.
+        n_roi_output : int
+            Number of regions to propose in forward pass. Pass -1 to return all.
         IoU_neg_threshold : float
             IoU to declare that a region proposal is a negative example.
-        IoU_pos_threshold : float
-            IoU to declare that a region proposal is a positive example.
         rpn_dropout : float or None
             Add dropout to the RPN with this fraction. Pass None to skip.
-        n_roi : int
-            Number of regions to propose in forward pass. Pass -1 to return all.
         """
 
         super().__init__()
@@ -118,11 +113,10 @@ class RPNModel(tf.keras.Model):
         self.anchor_stride = anchor_stride
         self.window_sizes = window_sizes
         self.filters = filters
-        self.rpn_minibatch = rpn_minibatch
+        self.roi_minibatch_per_image = roi_minibatch_per_image
+        self.n_roi_output = n_roi_output
         self.IoU_neg_threshold = IoU_neg_threshold
-        self.IoU_pos_threshold = IoU_pos_threshold
         self.rpn_dropout = rpn_dropout
-        self.n_roi = n_roi
 
         # Anchor box sizes
         self._build_anchor_boxes()
@@ -165,10 +159,8 @@ class RPNModel(tf.keras.Model):
         # Accumulate RoI data
         labels = self.label_decoder(data[1])
 
-        rois = tf.map_fn(
-                partial(self._accumulate_roi, minibatch_size = labels.shape[0]),
-                labels
-                )
+        # Loop over images accumulating RoI proposals
+        rois = tf.map_fn(self._accumulate_roi, labels)
 
         # Compute loss
         with tf.GradientTape() as tape:
@@ -177,7 +169,7 @@ class RPNModel(tf.keras.Model):
             cls, bbox = self.rpn(features, training=True)
 
             # Compute the loss using the classification scores and bounding boxes
-            loss = self.compute_loss(cls, bbox, rois)
+            loss = self._compute_loss(cls, bbox, rois)
 
         # Apply gradients in the optimizer. Note that TF will throw spurious warnings if gradients
         # don't exist for the bbox regression if there were no + examples in the minibatch
@@ -283,117 +275,87 @@ class RPNModel(tf.keras.Model):
         return tf.stack([x, y, w, h], axis=-1)
 
     @tf.function
-    def _accumulate_roi(self, labels, minibatch_size):
+    def _accumulate_roi(
+        self, label
+    ):
         """
         Make a list of RoIs of positive and negative examples
         and their corresponding ground truth annotations.
 
+        Note that RoI are not guaranteed to be valid. This is checked
+        in the loss calculation step.
+
         Arguments:
 
-        label_minibatch : tf.tensor
+        label : tf.tensor
             Tensor slice containing decoded labels for a single image
-        minibatch_size : int
-            Number of images in a minibatch.
 
         Returns:
 
-        tf.tensor of shape (self.rpn_minibatch / minibatch_size, 8)
-        The first 4 coordinates are (xx,yy,ww,hh) for the RoI.
-        The last 4 coordinates are (x,y,w,h) for the ground truth box, 
-        or (0,0,0,0) if the RoI is not associated with any ground truth.
-
+        tf.tensor of shape (self.roi_minibatch_per_image, 8)
+            The first 4 coordinates are (ixx,iyy,ik,valid) for the RoI.
+            The next  4 coordinates are (x,y,w,h) for the ground truth box,
+            or (0.,0.,0.,0.) if the RoI is not associated with any ground truth.
         """
 
         print("Python interpreter in RPNModel._accumulate_roi()")
 
-        n_roi = tf.cast(self.rpn_minibatch / minibatch_size, "int32")
+        rois = []
 
-        rois = tf.TensorArray(tf.float32, size=n_roi)
+        # Helper to deal with broadcasting, compute the ground truth
+        # IoU for the first roi_minibatch_per_image entries in the label
+        def _anchor_IoU(ik):
+            return self._ground_truth_IoU(
+                label[: self.roi_minibatch_per_image, :],
+                self.anchor_xx,
+                self.anchor_yy,
+                tf.cast(self.ww[ik], tf.float32) * tf.ones(self.anchor_xx.shape),
+                tf.cast(self.hh[ik], tf.float32) * tf.ones(self.anchor_yy.shape),
+            )
 
-        """
-        Fill the list of ROIs with both positive and negative examples
+        # No clue why this works but tf.map_fn() doesn't
+        # (ik, i_starfish, ixx, iyy)
+        ground_truth_IoU = tf.stack(
+            [_anchor_IoU(ik) for ik in tf.unstack(tf.range(self.k, dtype=tf.int32))]
+        )
 
-        For each ground truth positive in label_decode append
-        a) The best IoU as a positive
-        b) Any region proposal with IoU > self.IoU_threshold
+        # Work one starfish at a time
+        for i_starfish in range(self.roi_minibatch_per_image):
 
-        Afterwards, fill up the list with negative RoI up to a specified size.
-
-        Note that we are doing this with the box definitions without
-        tuning to keep the RPN from running away from the original definitions.
-        """
-        # Select starfish from label tensor
-        starfish = labels[tf.math.count_nonzero(labels, axis=1) > 0]
-
-        i_roi = tf.constant(0)
-
-        if tf.size(starfish) > 0:
-
-            # If there are positive examples return the example with the highest IoU per example
-            # and any with IoU > threshold. First do the giant IoU calculation k times per annotation
-            # Axis dimensions are labels, k, yy, xx
-            def anchor_IoU(ik):
-                return self._ground_truth_IoU(
-                        starfish,
-                        self.anchor_xx,
-                        self.anchor_yy,
-                        self.ww[ik] * tf.ones(self.anchor_xx.shape),
-                        self.hh[ik] * tf.ones(self.anchor_yy.shape),
-                    )
-
-            ground_truth_IoU = tf.map_fn(anchor_IoU, tf.range(self.k))
-            ground_truth_IoU = tf.transpose(ground_truth_IoU, perm=[1,0,2,3])
-
-            print(ground_truth_IoU.shape)
-            # ground_truth_IoU = (len(starfish), self.k, feature_size[0], feature_size[1])
-
-            # Acquire anything with IoU > self.IoU_pos_threshold
-            for ilabel in tf.range(ground_truth_IoU.shape[0]):
-                pos_slice = tf.where(
-                    tf.logical_or(
-                        ground_truth_IoU[ilabel] > self.IoU_pos_threshold,
-                        ground_truth_IoU[ilabel]
-                        == tf.reduce_max(ground_truth_IoU[ilabel]),
-                    )
-                )
-
-                for j in tf.range(pos_slice.shape[0]):
-                    xx = self.anchor_xx[pos_slice[j,1], pos_slice[j,2]]
-                    yy = self.anchor_yy[pos_slice[j,1], pos_slice[j,2]]
-                    ww = self.ww[pos_slice[j,0]]
-                    hh = self.hh[pos_slice[j,0]]
-                    bbox = tf.stack([xx,yy,ww,hh])
-                    rois = rois.write(i_roi, tf.concat([bbox, starfish[ilabel]], axis=0))
-                    i_roi += 1
-
-        rxx = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[1]))
-        ryy = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[0]))
-        rk = tf.random.shuffle(tf.range(self.k))
-
-        i = tf.constant(0.)
-        while tf.math.less(i_roi, n_roi):
-
-            bbox = (self.anchor_xx[ryy[i], rxx[i]],
-                    self.anchor_yy[ryy[i], rxx[i]],
-                    self.ww[rk[i]], self.hh[rk[i]])
-
-            # Check if this is a valid negative RoI
-            if (
-                self.valid_mask[ryy[i], rxx[i], rk[i]]
-                and tf.reduce_max(
-                    self._ground_truth_IoU(
-                        starfish,
-                        *bbox
-                    )
-                )
-                < self.IoU_neg_threshold
+            # No starfish, so pick something at random
+            if tf.math.greater_equal(
+                tf.constant(self.IoU_neg_threshold),
+                tf.reduce_max(ground_truth_IoU[:, i_starfish, :, :]),
             ):
-                rois = rois.write(i_roi, tf.stack([*bbox, 0., 0., 0., 0.]))
-                i_roi += 1
 
-            i += 1
+                rxx = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[1]))[0]
+                ryy = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[0]))[0]
+                rk = tf.random.shuffle(tf.range(self.k))[0]
+                ground_truth = tf.constant([0.0, 0.0, 0.0, 0.0])
 
-        return rois.stack()
+            else:
+
+                pos_slice = tf.where(
+                    ground_truth_IoU[:, i_starfish, :, :]
+                    == tf.reduce_max(ground_truth_IoU[:, i_starfish, :, :])
+                )
+
+                rk = tf.cast(pos_slice[0, 0], tf.int32)
+                rxx = tf.cast(pos_slice[0, 1], tf.int32)
+                ryy = tf.cast(pos_slice[0, 2], tf.int32)
+                ground_truth = label[i_starfish, :]
+
+            rois.append(
+                [
+                    tf.range(tf.shape(self.anchor_xx)[1], dtype=tf.float32)[rxx],
+                    tf.range(tf.shape(self.anchor_xx)[0], dtype=tf.float32)[ryy],
+                    tf.range(self.k, dtype=tf.float32)[rk],
+                    tf.cast(self.valid_mask[ryy, rxx, rk], tf.float32),
+                    *tf.unstack(ground_truth),
+                ]
+            )
+
+        return tf.convert_to_tensor(rois)
 
     @tf.function
     def _compute_loss(self, cls, bbox, rois):
@@ -550,10 +512,8 @@ class RPNModel(tf.keras.Model):
         # Coordinates and area of the proposed region
         x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
         w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
-
         proposal_box = tf.stack([x, y, w, h])
 
-        # Return stacked tensor, could be a map_fn?
         def get_IoU(annotation):
             return geometry.calculate_IoU(proposal_box, annotation)
 
@@ -568,13 +528,12 @@ class RPNWrapper:
         label_decoder,
         kernel_size=3,
         anchor_stride=1,
-        window_sizes=[2, 4],  # these must be divisible by 2
+        window_sizes=[2.0, 4.0],
         filters=512,
-        rpn_minibatch=16,
-        IoU_neg_threshold=0.1,
-        IoU_pos_threshold=0.7,
+        roi_minibatch_per_image=6,
+        n_roi_output=128,
+        IoU_neg_threshold=0.01,
         rpn_dropout=0.2,
-        n_roi=100,
         learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
             boundaries=[
                 10000,
@@ -607,16 +566,15 @@ class RPNWrapper:
         filters: int
             Number of filters between the convolutional layer
             and the fully connected layers in the RPN.
-        rpn_minibatch : int
-            Number of RoIs to use ( = positive + negative) per gradient step in the RPN.
+        roi_minibatch_per_image : int
+            Number of RoIs to use ( = positive + negative) per image per gradient step in the RPN.
+        n_roi_output : int
+            Number of regions to propose in forward pass. Pass -1 to return all.
         IoU_neg_threshold : float
-            IoU to declare that a region proposal is a negative example.
-        IoU_pos_threshold : float
-            IoU to declare that a region proposal is a positive example.
+            IoU to declare that a region proposal is a negative example. Something safely above
+            floating point error.
         rpn_dropout : float or None
             Add dropout to the RPN with this fraction. Pass None to skip.
-        n_roi : int
-            Number of regions to propose in forward pass. Pass -1 to return all.
         learning_rate : float or tf.keras.optimizers.schedules
             Learning rate for the SDGW optimizer.
         weight_decay : float or tf.keras.optimizers.schedules
@@ -627,6 +585,7 @@ class RPNWrapper:
             Maximum allowable gradient for the SGDW optimizer.
         """
 
+        # RPN model itself
         self.rpnmodel = RPNModel(
             backbone,
             label_decoder,
@@ -634,13 +593,13 @@ class RPNWrapper:
             anchor_stride,
             window_sizes,
             filters,
-            rpn_minibatch,
+            roi_minibatch_per_image,
+            n_roi_output,
             IoU_neg_threshold,
-            IoU_pos_threshold,
             rpn_dropout,
-            n_roi,
         )
 
+        # Optimizer parameters
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.momentum = momentum

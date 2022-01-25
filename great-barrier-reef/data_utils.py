@@ -157,7 +157,6 @@ class DataLoaderFull(DataLoader):
 
         return self.validation
 
-    @tf.function
     def decode_label(self, label):
         """
         Decode the label defined in the dataset creation into a list
