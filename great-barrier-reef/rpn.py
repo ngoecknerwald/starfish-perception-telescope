@@ -674,6 +674,9 @@ class RPNWrapper:
             Load path for the RPN model.
         """
 
+        # TODO this doesn't really work, probably need to do the get_weights() / save_weights()
+        # thing from the backbone
+
         self.rpnmodel = tf.saved_model.load(filename)
 
     def propose_regions(self, images, **kwargs):
