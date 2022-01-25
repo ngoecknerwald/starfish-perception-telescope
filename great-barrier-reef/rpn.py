@@ -406,51 +406,52 @@ class RPNModel(tf.keras.Model):
         # Work one RoI at a time
         for i in range(self.roi_minibatch_per_image):
 
-            # Decode and cast to ints to use as indices
-            ixx = tf.cast(rois[i, 0], tf.int32)
-            iyy = tf.cast(rois[i, 1], tf.int32)
-            ik = tf.cast(rois[i, 2], tf.int32)
             valid = tf.cast(rois[i, 3], tf.bool)
-            roi_gt = rois[i, 4:]
 
-            positive = tf.logical_and(
-                valid, tf.math.greater_equal(tf.reduce_sum(roi_gt), 0.001)
-            )
+            if valid:
 
-            # First, compute the categorical cross entropy objectness loss
-            cls_select = tf.nn.softmax(cls[iyy, ixx, ik :: self.k])
+                # Decode and cast to ints to use as indices
+                ixx = tf.cast(rois[i, 0], tf.int32)
+                iyy = tf.cast(rois[i, 1], tf.int32)
+                ik = tf.cast(rois[i, 2], tf.int32)
+                roi_gt = rois[i, 4:]
 
-            if positive:
-                ground_truth = tf.constant([1.0, 0.0])
-            else:
-                ground_truth = tf.constant([0.0, 1.0])
+                positive = tf.math.greater_equal(tf.reduce_sum(roi_gt), 0.001)
 
-            loss += self.objectness(ground_truth, cls_select)
+                # First, compute the categorical cross entropy objectness loss
+                cls_select = tf.nn.softmax(cls[iyy, ixx, ik :: self.k])
 
-            # Compare anchor to ground truth
-            if positive:
+                if positive:
+                    ground_truth = tf.constant([1.0, 0.0])
+                else:
+                    ground_truth = tf.constant([0.0, 1.0])
 
-                # Refer the corners of the bounding box back to image space
-                # Note that this assumes said mapping is linear.
-                x, y = self.backbone.feature_coords_to_image_coords(
-                    self.anchor_xx[iyy, ixx],
-                    self.anchor_yy[iyy, ixx],
-                )
-                w, h = self.backbone.feature_coords_to_image_coords(
-                    self.ww[ik],
-                    self.hh[ik],
-                )
+                loss += self.objectness(ground_truth, cls_select)
 
-                t_x_star = (x - roi_gt[0]) / (w)
-                t_y_star = (y - roi_gt[1]) / (h)
-                t_w_star = geometry.safe_log(roi_gt[2] / (w))
-                t_h_star = geometry.safe_log(roi_gt[3] / (h))
+                # Compare anchor to ground truth
+                if positive:
 
-                # Huber loss, which AFAIK is the same as smooth L1
-                loss += self.bbox_reg_l1(
-                    [t_x_star, t_y_star, t_w_star, t_h_star],
-                    bbox[iyy, ixx, ik :: self.k],
-                )
+                    # Refer the corners of the bounding box back to image space
+                    # Note that this assumes said mapping is linear.
+                    x, y = self.backbone.feature_coords_to_image_coords(
+                        self.anchor_xx[iyy, ixx],
+                        self.anchor_yy[iyy, ixx],
+                    )
+                    w, h = self.backbone.feature_coords_to_image_coords(
+                        self.ww[ik],
+                        self.hh[ik],
+                    )
+
+                    t_x_star = (x - roi_gt[0]) / (w)
+                    t_y_star = (y - roi_gt[1]) / (h)
+                    t_w_star = geometry.safe_log(roi_gt[2] / (w))
+                    t_h_star = geometry.safe_log(roi_gt[3] / (h))
+
+                    # Huber loss, which AFAIK is the same as smooth L1
+                    loss += self.bbox_reg_l1(
+                        [t_x_star, t_y_star, t_w_star, t_h_star],
+                        bbox[iyy, ixx, ik :: self.k],
+                    )
 
         return loss
 
