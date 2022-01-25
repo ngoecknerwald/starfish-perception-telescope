@@ -162,6 +162,8 @@ class RPNModel(tf.keras.Model):
         # Loop over images accumulating RoI proposals
         rois = tf.map_fn(self._accumulate_roi, labels)
 
+        print(rois)
+
         # Compute loss
         with tf.GradientTape() as tape:
 
@@ -275,9 +277,7 @@ class RPNModel(tf.keras.Model):
         return tf.stack([x, y, w, h], axis=-1)
 
     @tf.function
-    def _accumulate_roi(
-        self, label
-    ):
+    def _accumulate_roi(self, label):
         """
         Make a list of RoIs of positive and negative examples
         and their corresponding ground truth annotations.
@@ -328,9 +328,13 @@ class RPNModel(tf.keras.Model):
                 tf.reduce_max(ground_truth_IoU[:, i_starfish, :, :]),
             ):
 
-                rxx = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[1]))[0]
-                ryy = tf.random.shuffle(tf.range(tf.shape(self.anchor_xx)[0]))[0]
-                rk = tf.random.shuffle(tf.range(self.k))[0]
+                rxx = tf.random.uniform(
+                    shape=[], dtype=tf.int32, maxval=tf.shape(self.anchor_xx)[1]
+                )
+                ryy = tf.random.uniform(
+                    shape=[], dtype=tf.int32, maxval=tf.shape(self.anchor_xx)[0]
+                )
+                rk = tf.random.uniform(shape=[], dtype=tf.int32, maxval=self.k)
                 ground_truth = tf.constant([0.0, 0.0, 0.0, 0.0])
 
             else:
@@ -347,9 +351,9 @@ class RPNModel(tf.keras.Model):
 
             rois.append(
                 [
-                    tf.range(tf.shape(self.anchor_xx)[1], dtype=tf.float32)[rxx],
-                    tf.range(tf.shape(self.anchor_xx)[0], dtype=tf.float32)[ryy],
-                    tf.range(self.k, dtype=tf.float32)[rk],
+                    tf.cast(rxx, tf.float32),
+                    tf.cast(ryy, tf.float32),
+                    tf.cast(rk, tf.float32),
                     tf.cast(self.valid_mask[ryy, rxx, rk], tf.float32),
                     *tf.unstack(ground_truth),
                 ]
