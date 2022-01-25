@@ -322,7 +322,7 @@ class RPNModel(tf.keras.Model):
             )
 
         # No clue why this works but tf.map_fn() doesn't
-        # (ik, i_starfish, ixx, iyy)
+        # (ik, i_starfish, iyy, ixx)
         ground_truth_IoU = tf.stack(
             [_anchor_IoU(ik) for ik in tf.unstack(tf.range(self.k, dtype=tf.int32))]
         )
@@ -353,8 +353,8 @@ class RPNModel(tf.keras.Model):
                 )
 
                 rk = tf.cast(pos_slice[0, 0], tf.int32)
-                rxx = tf.cast(pos_slice[0, 1], tf.int32)
-                ryy = tf.cast(pos_slice[0, 2], tf.int32)
+                rxx = tf.cast(pos_slice[0, 2], tf.int32)
+                ryy = tf.cast(pos_slice[0, 1], tf.int32)
                 ground_truth = label[i_starfish, :]
 
             rois.append(
