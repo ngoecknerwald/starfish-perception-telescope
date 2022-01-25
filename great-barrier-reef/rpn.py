@@ -664,7 +664,7 @@ class RPNWrapper:
             Save path for the RPN model.
         """
 
-        tf.keras.models.save_model(self.rpnmodel, filename)
+        tf.saved_model.save(self.rpnmodel, filename)
 
     def load_rpn_state(self, filename):
         """
@@ -674,7 +674,7 @@ class RPNWrapper:
             Load path for the RPN model.
         """
 
-        self.rpnmodel = tf.keras.models.load_model(filename)
+        self.rpnmodel = tf.saved_model.load(filename)
 
     def propose_regions(self, images, **kwargs):
         """
