@@ -162,8 +162,6 @@ class RPNModel(tf.keras.Model):
         # Loop over images accumulating RoI proposals
         rois = tf.map_fn(self._accumulate_roi, labels)
 
-        print(rois)
-
         # Compute loss
         with tf.GradientTape() as tape:
 
@@ -171,17 +169,27 @@ class RPNModel(tf.keras.Model):
             cls, bbox = self.rpn(features, training=True)
 
             # Compute the loss using the classification scores and bounding boxes
-            loss = self._compute_loss(cls, bbox, rois)
+            loss = tf.reduce_sum(
+                tf.map_fn(
+                    self._compute_loss,
+                    [cls, bbox, rois],
+                    fn_output_signature=(tf.float32),
+                )
+            )
+
+        gradients = tape.gradient(loss, self.rpn.trainable_variables)
 
         # Apply gradients in the optimizer. Note that TF will throw spurious warnings if gradients
         # don't exist for the bbox regression if there were no + examples in the minibatch
         # This isn't actually an error, so list comprehension around it
-        gradients = tape.gradient(loss, self.rpnlayer.trainable_variables)
+
         self.optimizer.apply_gradients(
             (grad, var)
-            for (grad, var) in zip(gradients, self.rpnlayer.trainable_variables)
+            for (grad, var) in zip(gradients, self.rpn.trainable_variables)
             if grad is not None
         )
+
+        return {"loss": loss}
 
     def call(
         self,
@@ -362,7 +370,7 @@ class RPNModel(tf.keras.Model):
         return tf.convert_to_tensor(rois)
 
     @tf.function
-    def _compute_loss(self, cls, bbox, rois):
+    def _compute_loss(self, data):
 
         """
         Compute the loss function for a set of classification
@@ -371,70 +379,80 @@ class RPNModel(tf.keras.Model):
 
         Arguments:
 
-        cls : tensor, shape (i_image, iyy, ixx, ik)
+        cls : tensor, shape (iyy, ixx, 2 * ik)
             Slice of the output from the RPN corresponding to the
             classification (object-ness) field. From here on out
             the k ordering is [neg_k=0, neg_k=1, ... pos_k=0, pos_k=1...].
-        bbox : tensor, shape (i_image, iyy, ixx, ik)
+        bbox : tensor, shape (iyy, ixx, 4 * ik)
             Slice of the output from the RPN. The k dimension is ordered
             following a similar convention as cls:
             [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
             ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
-        rois : list or RoIs, [i, iyy, ixx, ik, {<label or empty>}]
+        rois : list or RoIs, [ixx,iyy,ik,valid,(x, y, w, h)]
             Output of accumulate_roi(), see training_step for use case.
         """
 
         print("Python interpreter in RPNModel._compute_loss()")
 
+        cls, bbox, rois = data
+
         # Sanity check
-        tf.debugging.assert_all_finite(cls)
+        tf.debugging.assert_all_finite(cls, "NaN encountered in RPN training.")
 
-        # First, compute the categorical cross entropy objectness loss
-        cls_select = tf.nn.softmax(
-            [cls[roi[0], roi[1], roi[2], roi[3] :: self.k] for roi in rois]
-        )
-        ground_truth = [[1, 0] if len(roi[4]) > 0 else [0, 1] for roi in rois]
-
-        # Start with an L2 regularization
+        # Regularization loss
         loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
         loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
-        loss += self.objectness(ground_truth, cls_select)
 
-        # Now add the bounding box term
-        for roi in rois:
+        # Work one RoI at a time
+        for i in range(self.roi_minibatch_per_image):
+
+            # Decode and cast to ints to use as indices
+            ixx = tf.cast(rois[i, 0], tf.int32)
+            iyy = tf.cast(rois[i, 1], tf.int32)
+            ik = tf.cast(rois[i, 2], tf.int32)
+            valid = tf.cast(rois[i, 3], tf.bool)
+            roi_gt = rois[i, 4:]
+
+            positive = tf.logical_and(
+                valid, tf.math.greater_equal(tf.reduce_sum(roi_gt), 0.001)
+            )
+
+            # First, compute the categorical cross entropy objectness loss
+            cls_select = tf.nn.softmax(cls[iyy, ixx, ik :: self.k])
+
+            if positive:
+                ground_truth = tf.constant([1.0, 0.0])
+            else:
+                ground_truth = tf.constant([0.0, 1.0])
+
+            loss += self.objectness(ground_truth, cls_select)
 
             # Compare anchor to ground truth
-            if len(roi[4]) > 0:
+            if positive:
 
                 # Refer the corners of the bounding box back to image space
                 # Note that this assumes said mapping is linear.
                 x, y = self.backbone.feature_coords_to_image_coords(
-                    self.anchor_xx[roi[1], roi[2]],
-                    self.anchor_yy[roi[1], roi[2]],
+                    self.anchor_xx[iyy, ixx],
+                    self.anchor_yy[iyy, ixx],
                 )
                 w, h = self.backbone.feature_coords_to_image_coords(
-                    self.ww[roi[3]],
-                    self.hh[roi[3]],
+                    self.ww[ik],
+                    self.hh[ik],
                 )
 
-                t_x_star = (x - roi[4][0]) / (w)
-                t_y_star = (y - roi[4][1]) / (h)
-                t_w_star = geometry.safe_log(roi[4][2] / (w))
-                t_h_star = geometry.safe_log(roi[4][3] / (h))
+                t_x_star = (x - roi_gt[0]) / (w)
+                t_y_star = (y - roi_gt[1]) / (h)
+                t_w_star = geometry.safe_log(roi_gt[2] / (w))
+                t_h_star = geometry.safe_log(roi_gt[3] / (h))
 
                 # Huber loss, which AFAIK is the same as smooth L1
                 loss += self.bbox_reg_l1(
                     [t_x_star, t_y_star, t_w_star, t_h_star],
-                    bbox[roi[0], roi[1], roi[2], roi[3] :: self.k],
+                    bbox[iyy, ixx, ik :: self.k],
                 )
 
         return loss
-
-        ####################################################
-        #
-        # End not done
-        #
-        ####################################################
 
     def _build_anchor_boxes(self):
         """
