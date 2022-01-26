@@ -50,8 +50,10 @@ class RPNLayer(tf.keras.layers.Layer):
         self.bbox = tf.keras.layers.Conv2D(
             filters=4 * self.k, kernel_size=1, strides=(1, 1)
         )
+        self.outputs=None
 
-    def call(self, x, training=False):
+    #@tf.function
+    def call(self, x, training=None):
 
         print("Python interpreter in RPNLayer.call()")
 
@@ -61,6 +63,18 @@ class RPNLayer(tf.keras.layers.Layer):
         cls = self.cls(x)
         bbox = self.bbox(x)
         return (cls, bbox)
+
+    def get_config(self):
+        return {"k": self.k, 
+        'kernel_size':self.kernel_size,
+        'anchor_stride':self.anchor_stride,
+        'filters':self.filters,
+        "dropout":self.dropout,
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
 
 
 class RPNModel(tf.keras.Model):
@@ -138,6 +152,7 @@ class RPNModel(tf.keras.Model):
 
     # Two methods required by the tf.keras.Model interface,
     # the training step and the forward pass
+    @tf.function
     def train_step(self, data):
 
         """
@@ -191,6 +206,7 @@ class RPNModel(tf.keras.Model):
 
         return {"loss": loss}
 
+    @tf.function
     def call(
         self,
         data,
@@ -637,8 +653,6 @@ class RPNWrapper:
             clipvalue=self.clipvalue,
         )
 
-        self.rpnmodel.compile(optimizer=self.optimizer)
-
     def train_rpn(self, train_dataset, epochs=5, kwargs={}):
         """
         Main training loop iterating over a dataset.
@@ -653,6 +667,7 @@ class RPNWrapper:
 
         """
 
+        self.rpnmodel.compile(optimizer=self.optimizer)
         self.rpnmodel.fit(train_dataset, epochs=epochs, **kwargs)
 
     def save_rpn_state(self, filename):
@@ -675,10 +690,9 @@ class RPNWrapper:
             Load path for the RPN model.
         """
 
-        # TODO this doesn't really work, probably need to do the get_weights() / save_weights()
-        # thing from the backbone
-
-        self.rpnmodel.rpn = tf.keras.models.load_model(filename)
+        localmodel = tf.keras.models.load_model(filename)
+        self.rpnmodel.rpn.set_weights(localmodel.get_weights())
+        del localmodel
 
     def propose_regions(self, images, **kwargs):
         """
