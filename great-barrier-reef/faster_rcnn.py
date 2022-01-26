@@ -183,17 +183,23 @@ class FasterRCNNWrapper:
         """
 
         # Create the RPN wrapper
-        self.rpnwrapper = rpn.RPNWrapper(self.backbone, **rpn_kwargs)
+        self.rpnwrapper = rpn.RPNWrapper(
+            self.backbone, self.data_loader_full.decode_label, **rpn_kwargs
+        )
 
         if rpn_weights is not None:  # Load the weights from a file
 
             assert os.path.exists(rpn_weights)
+            # Run dummy data through to build the network, then load weights
+            minibatch = self.data_loader_full.get_training().__iter__().next()
+            self.rpnwrapper.propose_regions(minibatch[0], is_images=True)
             self.rpnwrapper.load_rpn_state(rpn_weights)
+            del minibatch
 
         else:  # train the RPN with the default settings
 
             self.rpnwrapper.train_rpn(
-                self.data_loader_full.get_training(), self.data_loader_full.decode_label
+                self.data_loader_full.get_training(),
             )
 
     def instantiate_RoI_pool(self, roi_kwargs):
@@ -209,7 +215,13 @@ class FasterRCNNWrapper:
         """
 
         self.RoI_pool = roi_pooling.RoIPooling(
-            self.backbone.output_shape, self.n_proposals, **roi_kwargs
+            (
+                int(self.backbone._output_shape[0]),
+                int(self.backbone._output_shape[1]),
+                int(self.backbone._output_shape[2]),
+            ),
+            self.n_proposals,
+            **roi_kwargs
         )
 
     def instantiate_classifier(self, classifier_weights, classifier_kwargs):
@@ -302,13 +314,13 @@ class FasterRCNNWrapper:
 
         # Usual invocation, taking advantage of the shared backbone
         features = self.backbone.extractor(image)
-        roi = self.rpnwrapper.propose_regions(features, input_is_images=False)
+        roi = self.rpnwrapper.propose_regions(features, is_images=False)
         features, roi = self.RoI_pool(features, roi)
 
         # Run the classifier in forward mode
         return self.classwrapper.predict_classes(
             features,
-            roi.astype(float),
+            roi.astype("float32"),
         )
 
     def fine_tuning_loop(self):
