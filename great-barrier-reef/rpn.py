@@ -223,7 +223,7 @@ class RPNModel(tf.keras.Model):
 
         # Run through the extractor if images
         if is_images:
-            features = self.backbone(input_image_or_features)
+            features = self.backbone(data)
         else:
             features = data
 
@@ -245,13 +245,13 @@ class RPNModel(tf.keras.Model):
 
         # Remove the invalid bounding boxes
         objectness = tf.math.multiply(
-            objectness, self.valid_mask.reshape(-1)[tf.newaxis, :]
+            objectness, tf.reshape(tf.cast(self.valid_mask, dtype=tf.float32), (-1))[tf.newaxis, :]
         )
 
         # Dimension for bbox is same as cls but ik follows
         # [t_x_k=0, t_x_k=1, ..., t_y_k=0, t_y_k=1,
         # ..., t_w_k=0, t_w_k=1, ..., t_h_k=0, t_h_k=1, ...]
-        xx = self.anchor_xx[np.newaxis, :, :, tf.newaxis] - (
+        xx = self.anchor_xx[tf.newaxis, :, :, tf.newaxis] - (
             bbox[:, :, :, : self.k] * self.ww[tf.newaxis, tf.newaxis, tf.newaxis, :]
         )
         yy = self.anchor_yy[tf.newaxis, :, :, tf.newaxis] - (
@@ -269,20 +269,21 @@ class RPNModel(tf.keras.Model):
         argsort = tf.argsort(objectness, axis=-1, direction="DESCENDING")
 
         # Sort things by objectness
-        xx = geometry.batch_sort(xx, argsort, self.n_roi)
-        yy = geometry.batch_sort(yy, argsort, self.n_roi)
-        ww = geometry.batch_sort(ww, argsort, self.n_roi)
-        hh = geometry.batch_sort(hh, argsort, self.n_roi)
+        xx = geometry.batch_sort(xx, argsort, self.n_roi_output)
+        yy = geometry.batch_sort(yy, argsort, self.n_roi_output)
+        ww = geometry.batch_sort(ww, argsort, self.n_roi_output)
+        hh = geometry.batch_sort(hh, argsort, self.n_roi_output)
 
         # Return in feature space
         if not is_images:
             output = tf.stack([xx, yy, ww, hh], axis=-1)
-            return output
+        else:
+          # Convert to image plane
+          x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
+          w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
+          output =  tf.stack([x, y, w, h], axis=-1)
 
-        # Convert to image plane
-        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
-        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
-        return tf.stack([x, y, w, h], axis=-1)
+        return output
 
     @tf.function
     def _accumulate_roi(self, label):
@@ -664,7 +665,7 @@ class RPNWrapper:
             Save path for the RPN model.
         """
 
-        tf.saved_model.save(self.rpnmodel, filename)
+        tf.keras.models.save_model(self.rpnmodel.rpn, filename)
 
     def load_rpn_state(self, filename):
         """
@@ -677,7 +678,7 @@ class RPNWrapper:
         # TODO this doesn't really work, probably need to do the get_weights() / save_weights()
         # thing from the backbone
 
-        self.rpnmodel = tf.saved_model.load(filename)
+        self.rpnmodel.rpn = tf.keras.models.load_model(filename)
 
     def propose_regions(self, images, **kwargs):
         """
