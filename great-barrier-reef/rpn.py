@@ -50,9 +50,9 @@ class RPNLayer(tf.keras.layers.Layer):
         self.bbox = tf.keras.layers.Conv2D(
             filters=4 * self.k, kernel_size=1, strides=(1, 1)
         )
-        self.outputs=None
+        self.outputs = None
 
-    #@tf.function
+    # @tf.function
     def call(self, x, training=None):
 
         print("Python interpreter in RPNLayer.call()")
@@ -65,11 +65,12 @@ class RPNLayer(tf.keras.layers.Layer):
         return (cls, bbox)
 
     def get_config(self):
-        return {"k": self.k, 
-        'kernel_size':self.kernel_size,
-        'anchor_stride':self.anchor_stride,
-        'filters':self.filters,
-        "dropout":self.dropout,
+        return {
+            "k": self.k,
+            "kernel_size": self.kernel_size,
+            "anchor_stride": self.anchor_stride,
+            "filters": self.filters,
+            "dropout": self.dropout,
         }
 
     @classmethod
@@ -261,7 +262,10 @@ class RPNModel(tf.keras.Model):
 
         # Remove the invalid bounding boxes
         objectness = tf.math.multiply(
-            objectness, tf.reshape(tf.cast(self.valid_mask, dtype=tf.float32), (-1,))[tf.newaxis, :]
+            objectness,
+            tf.reshape(tf.cast(self.valid_mask, dtype=tf.float32), (-1,))[
+                tf.newaxis, :
+            ],
         )
 
         # Dimension for bbox is same as cls but ik follows
@@ -294,10 +298,10 @@ class RPNModel(tf.keras.Model):
         if not is_images:
             output = tf.stack([xx, yy, ww, hh], axis=-1)
         else:
-          # Convert to image plane
-          x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
-          w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
-          output =  tf.stack([x, y, w, h], axis=-1)
+            # Convert to image plane
+            x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
+            w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
+            output = tf.stack([x, y, w, h], axis=-1)
 
         return output
 
