@@ -639,7 +639,7 @@ class RPNWrapper:
 
         self.rpnmodel.compile(optimizer=self.optimizer)
 
-    def train_rpn(self, train_dataset, epochs=5):
+    def train_rpn(self, train_dataset, epochs=5, kwargs={}):
         """
         Main training loop iterating over a dataset.
 
@@ -653,7 +653,7 @@ class RPNWrapper:
 
         """
 
-        self.rpnmodel.fit(train_dataset, epochs=epochs)
+        self.rpnmodel.fit(train_dataset, epochs=epochs, **kwargs)
 
     def save_rpn_state(self, filename):
         """
