@@ -245,7 +245,7 @@ class RPNModel(tf.keras.Model):
 
         # Remove the invalid bounding boxes
         objectness = tf.math.multiply(
-            objectness, tf.reshape(tf.cast(self.valid_mask, dtype=tf.float32), (-1))[tf.newaxis, :]
+            objectness, tf.reshape(tf.cast(self.valid_mask, dtype=tf.float32), (-1,))[tf.newaxis, :]
         )
 
         # Dimension for bbox is same as cls but ik follows
