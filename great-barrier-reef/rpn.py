@@ -442,9 +442,9 @@ class RPNModel(tf.keras.Model):
                 cls_select = tf.nn.softmax(cls[iyy, ixx, ik :: self.k])
 
                 if positive:
-                    ground_truth = tf.constant([1.0, 0.0])
-                else:
                     ground_truth = tf.constant([0.0, 1.0])
+                else:
+                    ground_truth = tf.constant([1.0, 0.0])
 
                 loss += self.objectness(ground_truth, cls_select)
 
