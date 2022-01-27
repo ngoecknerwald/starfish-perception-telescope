@@ -3,11 +3,9 @@
 
 import tensorflow as tf
 import geometry
-import numpy as np
-from functools import partial
 
-
-class RoIPooling:
+# Extend the Keras layer class
+class RoIPooling(tf.keras.layers.Layer):
     def __init__(self, feature_size, n_regions, pool_size=(3, 3), IoU_threshold=0.4):
         """
         Instantiate the RoI pooling layer.
@@ -33,7 +31,51 @@ class RoIPooling:
         self.IoU_threshold = IoU_threshold
         self.feature_size = feature_size
 
-    def IoU_supression(self, roi):
+    # The proper thing for model serialization is to
+    # extend call() and not __call__(), apparently
+    @tf.function
+    def call(self, data):
+        """
+        Perform IoU suppression and clipping on the RoI and then pool
+        the features map output by the backbone.
+
+        Arguments:
+
+        data: tuple containing (features, roi)
+
+        features : tf.Tensor
+            Feature map returned by the backbone network.
+            Shape [image, xx, yy, channels.]
+        roi : tf.Tensor
+            RoI bounds returned by the RPN before any
+            postprocessing to clip boundaries and remove duplicate proposals.
+            Shape [image, regions, xywh]
+
+        Returns:
+
+        features_pool : tf.tensor
+            Feature tensor after RoI pooling.
+        roi_clipped : np.ndarray
+            Processed RoI to remove duplicates, impose minimum feature
+            dimensions, and trim to image boundaries.
+
+        """
+
+        features, roi = data
+
+        # Deduplicate and clip the input RoI
+        roi_clipped = self._clip_RoI(self._IoU_supression(roi))
+
+        # Use map_fn to iterate over images
+        pooled_areas = tf.map_fn(
+            self._pool_rois, (features, roi_clipped), dtype=tf.float32
+        )
+
+        return pooled_areas, roi_clipped
+
+    # TODO need to excise the numpy from this function
+    @tf.function
+    def _IoU_supression(self, roi):
 
         """
         Remove duplicate RoIs from the stack produced
@@ -110,7 +152,9 @@ class RoIPooling:
 
         return np.take_along_axis(roi, index_tensor, axis=1)
 
-    def clip_RoI(self, roi):
+    # TODO need to excise the numpy from this function
+    @tf.function
+    def _clip_RoI(self, roi):
 
         """
         Take the IoU before or after IoU supression and clip to the image boundaries.
@@ -185,41 +229,7 @@ class RoIPooling:
 
         return roi_clipped
 
-    def __call__(self, features, roi):
-        """
-        Perform IoU suppression and clipping on the RoI and then pool
-        the features map output by the backbone.
-
-        Arguments:
-
-        features : tf.Tensor
-            Feature map returned by the backbone network.
-            Shape [image, xx, yy, channels.]
-        roi : np.ndarray
-            RoI bounds returned by the RPN before any
-            postprocessing to clip boundaries and remove duplicate proposals.
-            Shape [image, regions, xywh]
-
-        Returns:
-
-        features_pool : tf.tensor
-            Feature tensor after RoI pooling.
-        roi_clipped : np.ndarray
-            Processed RoI to remove duplicates, impose minimum feature
-            dimensions, and trim to image boundaries.
-
-        """
-
-        # Deduplicate and clip the input RoI
-        roi_clipped = self.clip_RoI(self.IoU_supression(roi))
-
-        # Use map_fn to iterate over images
-        pooled_areas = tf.map_fn(
-            self._pool_rois, (features, roi_clipped), dtype=tf.float32
-        )
-
-        return pooled_areas, roi_clipped
-
+    @tf.function
     def _pool_rois(self, x):
         """
         Internal helper method.
@@ -234,6 +244,7 @@ class RoIPooling:
             partial(self._pool_roi, feature_map=feature_map), rois, dtype=tf.float32
         )
 
+    @tf.function
     def _pool_roi(self, roi, feature_map=None):
         """
         Internal helper method.
