@@ -26,10 +26,17 @@ class RoIPooling(tf.keras.layers.Layer):
 
         """
 
+        super().__init__()
         self.n_regions = n_regions
         self.pool_size = pool_size
         self.IoU_threshold = IoU_threshold
         self.feature_size = feature_size
+
+        # sanity checking that the pool size isn't > the feature size
+        assert (
+            self.feature_size[0] > self.pool_size[0]
+            and self.feature_size[1] > self.pool_size[1]
+        )
 
     # The proper thing for model serialization is to
     # extend call() and not __call__(), apparently
@@ -96,9 +103,6 @@ class RoIPooling(tf.keras.layers.Layer):
 
         """
 
-        if isinstance(roi, tf.Tensor):
-            roi = roi.numpy()
-
         # Sanity checking
         assert roi.shape[2] == 4  # x,y,w,h
 
@@ -150,7 +154,7 @@ class RoIPooling(tf.keras.layers.Layer):
             # Fill out the index tensor
             index_tensor[i, :, :] = keep[: self.n_regions, np.newaxis]
 
-        return np.take_along_axis(roi, index_tensor, axis=1)
+        return tf.experimental.numpy.take_along_axis(roi, index_tensor.astype("int32"), axis=1)
 
     # TODO need to excise the numpy from this function
     @tf.function
@@ -172,25 +176,17 @@ class RoIPooling(tf.keras.layers.Layer):
             RoIs clipped to the image bondaries and the minimum sizes.
         """
 
-        if isinstance(roi, tf.Tensor):
-            roi = roi.numpy()
+        #  temporarily convert from x,y,w,h to x,x+w,y,y+h
+        x_min = tf.cast(tf.math.maximum(0., roi[:, :, 0]), "int32")
+        y_min = tf.cast(tf.math.maximum(0., roi[:, :, 1]), "int32")
+        x_max = tf.cast(tf.math.minimum(
+            tf.cast(self.feature_size[1], "float32"), (roi[:, :, 0] + roi[:, :, 2])
+        ), "int32")
+        y_max = tf.cast(tf.math.minimum(
+            tf.cast(self.feature_size[0], "float32"), (roi[:, :, 1] + roi[:, :, 3])
+        ), "int32")
 
-        # sanity checking that the pool size isn't > the feature size
-        assert (
-            self.feature_size[0] > self.pool_size[0]
-            and self.feature_size[1] > self.pool_size[1]
-        )
-
-        roi_clipped = np.zeros(roi.shape, dtype=int)
-        #  temporarily convert from x,y,w,h to x,y,x+w,y+h
-        roi_clipped[:, :, 0] = np.maximum(0, roi[:, :, 0].astype(int))
-        roi_clipped[:, :, 1] = np.maximum(0, roi[:, :, 1].astype(int))
-        roi_clipped[:, :, 2] = np.minimum(
-            self.feature_size[1], (roi[:, :, 0] + roi[:, :, 2]).astype(int)
-        )
-        roi_clipped[:, :, 3] = np.minimum(
-            self.feature_size[0], (roi[:, :, 1] + roi[:, :, 3]).astype(int)
-        )
+        roi_clipped = tf.stack([x_min, x_max, y_min, y_max], axis=-1)
 
         # Padding:
         # 0. Leave box alone if big enough.
@@ -199,7 +195,8 @@ class RoIPooling(tf.keras.layers.Layer):
         # 2. Elif not enough space on left (bottom), fix box to left (bottom) boundary
         # 3. Elif not enough space on right (top), fix box to right (top) boundary
 
-        for mini, maxi, si in zip([0, 1], [2, 3], [1, 0]):
+        clipped = []  # same order as roi_clipped
+        for mini, maxi, si in zip([0, 2], [1, 3], [1, 0]):
 
             pad = self.pool_size[si] - (
                 roi_clipped[:, :, maxi] - roi_clipped[:, :, mini]
@@ -207,25 +204,20 @@ class RoIPooling(tf.keras.layers.Layer):
             fix_min = roi_clipped[:, :, mini] < pad // 2
             fix_max = (self.feature_size[si] - roi_clipped[:, :, maxi]) < (1 + pad) // 2
 
-            symmetric = np.logical_and(pad > 0, ~np.logical_or(fix_min, fix_max))
-            roi_clipped[:, :, mini][symmetric] -= pad[symmetric] // 2
-            roi_clipped[:, :, maxi][symmetric] += (1 + pad[symmetric]) // 2
+            symmetric = tf.math.logical_and(pad > 0, ~tf.math.logical_or(fix_min, fix_max))
 
-            roi_clipped[:, :, mini][np.logical_and(pad > 0, fix_min)] = 0
-            roi_clipped[:, :, maxi][np.logical_and(pad > 0, fix_min)] = self.pool_size[
-                si
-            ]
+            omin = tf.where(symmetric, roi_clipped[:,:,mini] - pad//2, roi_clipped[:,:,mini])
+            omax = tf.where(symmetric, roi_clipped[:,:,maxi] + (1 + pad)//2, roi_clipped[:,:,maxi])
 
-            roi_clipped[:, :, mini][np.logical_and(pad > 0, fix_max)] = (
-                self.feature_size[si] - self.pool_size[si]
-            )
-            roi_clipped[:, :, maxi][
-                np.logical_and(pad > 0, fix_max)
-            ] = self.feature_size[si]
+            omin = tf.where(tf.math.logical_and(pad > 0, fix_min), 0, omin)
+            omax = tf.where(tf.math.logical_and(pad > 0, fix_min), self.pool_size[si], omax)
 
-        #  convert back from x,y,x+w,y+h to x,y,w,h
-        roi_clipped[:, :, 2] -= roi_clipped[:, :, 0]
-        roi_clipped[:, :, 3] -= roi_clipped[:, :, 1]
+            omin = tf.where(tf.math.logical_and(pad > 0, fix_max), self.feature_size[si] - self.pool_size[si], omin)
+            omax = tf.where(tf.math.logical_and(pad > 0, fix_max), self.feature_size[si], omax)
+
+            clipped.extend([omin, omax])
+        
+        roi_clipped = tf.stack([clipped[0], clipped[2], clipped[1] - clipped[0], clipped[3] - clipped[2]], axis=-1)
 
         return roi_clipped
 
@@ -251,9 +243,9 @@ class RoIPooling(tf.keras.layers.Layer):
 
         Apply RoI pooling for a single image and a single RoI.
         """
-
+        print(roi)
         region = feature_map[roi[1] : roi[1] + roi[3], roi[0] : roi[0] + roi[2], :]
-
+        print(region.shape)
         # Divide the region into non overlapping areas
         h_step = tf.cast(region.shape[0] / self.pool_size[0], "int32")
         w_step = tf.cast(region.shape[1] / self.pool_size[1], "int32")
