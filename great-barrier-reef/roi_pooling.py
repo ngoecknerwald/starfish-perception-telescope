@@ -154,7 +154,9 @@ class RoIPooling(tf.keras.layers.Layer):
             # Fill out the index tensor
             index_tensor[i, :, :] = keep[: self.n_regions, np.newaxis]
 
-        return tf.experimental.numpy.take_along_axis(roi, index_tensor.astype("int32"), axis=1)
+        return tf.experimental.numpy.take_along_axis(
+            roi, index_tensor.astype("int32"), axis=1
+        )
 
     # TODO need to excise the numpy from this function
     @tf.function
@@ -177,14 +179,20 @@ class RoIPooling(tf.keras.layers.Layer):
         """
 
         #  temporarily convert from x,y,w,h to x,x+w,y,y+h
-        x_min = tf.cast(tf.math.maximum(0., roi[:, :, 0]), "int32")
-        y_min = tf.cast(tf.math.maximum(0., roi[:, :, 1]), "int32")
-        x_max = tf.cast(tf.math.minimum(
-            tf.cast(self.feature_size[1], "float32"), (roi[:, :, 0] + roi[:, :, 2])
-        ), "int32")
-        y_max = tf.cast(tf.math.minimum(
-            tf.cast(self.feature_size[0], "float32"), (roi[:, :, 1] + roi[:, :, 3])
-        ), "int32")
+        x_min = tf.cast(tf.math.maximum(0.0, roi[:, :, 0]), "int32")
+        y_min = tf.cast(tf.math.maximum(0.0, roi[:, :, 1]), "int32")
+        x_max = tf.cast(
+            tf.math.minimum(
+                tf.cast(self.feature_size[1], "float32"), (roi[:, :, 0] + roi[:, :, 2])
+            ),
+            "int32",
+        )
+        y_max = tf.cast(
+            tf.math.minimum(
+                tf.cast(self.feature_size[0], "float32"), (roi[:, :, 1] + roi[:, :, 3])
+            ),
+            "int32",
+        )
 
         roi_clipped = tf.stack([x_min, x_max, y_min, y_max], axis=-1)
 
@@ -204,20 +212,39 @@ class RoIPooling(tf.keras.layers.Layer):
             fix_min = roi_clipped[:, :, mini] < pad // 2
             fix_max = (self.feature_size[si] - roi_clipped[:, :, maxi]) < (1 + pad) // 2
 
-            symmetric = tf.math.logical_and(pad > 0, ~tf.math.logical_or(fix_min, fix_max))
+            symmetric = tf.math.logical_and(
+                pad > 0, ~tf.math.logical_or(fix_min, fix_max)
+            )
 
-            omin = tf.where(symmetric, roi_clipped[:,:,mini] - pad//2, roi_clipped[:,:,mini])
-            omax = tf.where(symmetric, roi_clipped[:,:,maxi] + (1 + pad)//2, roi_clipped[:,:,maxi])
+            omin = tf.where(
+                symmetric, roi_clipped[:, :, mini] - pad // 2, roi_clipped[:, :, mini]
+            )
+            omax = tf.where(
+                symmetric,
+                roi_clipped[:, :, maxi] + (1 + pad) // 2,
+                roi_clipped[:, :, maxi],
+            )
 
             omin = tf.where(tf.math.logical_and(pad > 0, fix_min), 0, omin)
-            omax = tf.where(tf.math.logical_and(pad > 0, fix_min), self.pool_size[si], omax)
+            omax = tf.where(
+                tf.math.logical_and(pad > 0, fix_min), self.pool_size[si], omax
+            )
 
-            omin = tf.where(tf.math.logical_and(pad > 0, fix_max), self.feature_size[si] - self.pool_size[si], omin)
-            omax = tf.where(tf.math.logical_and(pad > 0, fix_max), self.feature_size[si], omax)
+            omin = tf.where(
+                tf.math.logical_and(pad > 0, fix_max),
+                self.feature_size[si] - self.pool_size[si],
+                omin,
+            )
+            omax = tf.where(
+                tf.math.logical_and(pad > 0, fix_max), self.feature_size[si], omax
+            )
 
             clipped.extend([omin, omax])
-        
-        roi_clipped = tf.stack([clipped[0], clipped[2], clipped[1] - clipped[0], clipped[3] - clipped[2]], axis=-1)
+
+        roi_clipped = tf.stack(
+            [clipped[0], clipped[2], clipped[1] - clipped[0], clipped[3] - clipped[2]],
+            axis=-1,
+        )
 
         return roi_clipped
 
