@@ -2,6 +2,8 @@
 # Adapted from https://medium.com/xplore-ai/implementing-attention-in-tensorflow-keras-using-roi-pooling-992508b6592b
 
 import tensorflow as tf
+import numpy as np
+from functools import partial
 import geometry
 
 # Extend the Keras layer class
@@ -270,12 +272,12 @@ class RoIPooling(tf.keras.layers.Layer):
 
         Apply RoI pooling for a single image and a single RoI.
         """
-        print(roi)
         region = feature_map[roi[1] : roi[1] + roi[3], roi[0] : roi[0] + roi[2], :]
-        print(region.shape)
+        # Hack to circumvent None division error during graph building 
+        region_shape = region.shape if region.shape[0] is not None else self.pool_size
         # Divide the region into non overlapping areas
-        h_step = tf.cast(region.shape[0] / self.pool_size[0], "int32")
-        w_step = tf.cast(region.shape[1] / self.pool_size[1], "int32")
+        h_step = tf.cast(region_shape[0] / self.pool_size[0], "int32")
+        w_step = tf.cast(region_shape[1] / self.pool_size[1], "int32")
 
         areas = [
             [
