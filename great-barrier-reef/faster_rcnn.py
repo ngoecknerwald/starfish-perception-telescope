@@ -10,6 +10,7 @@ class FasterRCNNWrapper:
         self,
         input_shape=(720, 1280, 3),
         n_proposals=10,
+        positive_threshold=0.5,
         datapath="/content",
         backbone_type="InceptionResNet-V2",
         backbone_weights="finetune",
@@ -59,6 +60,7 @@ class FasterRCNNWrapper:
         # Record for posterity
         self.input_shape = input_shape
         self.n_proposals = n_proposals
+        self.positive_threshold = positive_threshold
 
         # Instantiate data loading class
         self.instantiate_data_loaders(
@@ -289,7 +291,7 @@ class FasterRCNNWrapper:
 
             print("")
 
-    def predict(self, image):
+    def predict(self, image, return_dict=False):
 
         """
         Make predictions for an image.
@@ -306,9 +308,47 @@ class FasterRCNNWrapper:
         features, roi = self.RoI_pool(features, roi)
 
         # Run the classifier in forward mode
-        return self.classwrapper.predict_classes(
+        minibatch_regions = self.classwrapper.predict_classes(
             features,
             roi.astype(float),
+        )
+
+        # output munging
+        minibatch_return = []
+        for regions in minibatch_regions:
+
+            # Clip regions
+            _regions = [
+                region
+                for region in regions
+                if region["score"] > self.positive_threshold
+            ]
+            # Sort by objectness
+            _regions = sorted(
+                _regions, key=lambda region: region["score"], reverse=True
+            )
+            if return_dict:
+                minibatch_return.append(_regions)
+            else:
+                minibatch_return.append(
+                    " ".join(
+                        [
+                            FasterRCNNWrapper._region_to_string(region)
+                            for region in _regions
+                        ]
+                    )
+                )
+
+        return minibatch_return
+
+    @staticmethod
+    def _region_to_string(region):
+        return "%02f %d %d %d %d" % (
+            region["score"],
+            int(region["x"]),
+            int(region["y"]),
+            int(region["width"]),
+            int(region["height"]),
         )
 
     def fine_tuning_loop(self):
