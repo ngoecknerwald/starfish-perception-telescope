@@ -145,7 +145,8 @@ class ClassifierWrapper:
 
         self.classifier = tf.keras.models.load_model(filename)
 
-    def compute_loss(self, roi, label_x, cls, bbox):
+    @tf.function
+    def _compute_loss(self, data):
         """
         Compute the loss term for the full network.
 
@@ -164,88 +165,51 @@ class ClassifierWrapper:
 
         """
 
-        # Stop the training if we hit nan values
-        if np.any(np.logical_not(np.isfinite(cls.numpy()))):
-            raise ValueError("NaN detected in the classifier, aborting training.")
+        #NO BATCH DIMENSION IN THIS FUNCTION
+        #INTENDED TO BE CALLED WITH MAP_FN
 
-        # Preliminaries, assign region proposals to ground truth boxes
-        ground_truth_match = -1 * np.ones((roi.shape[0], roi.shape[1]), dtype=int)
+        cls, bbox, roi, labels = data
 
         # Coordinates and area of the proposed region
-        x, y = self.backbone.feature_coords_to_image_coords(roi[:, :, 0], roi[:, :, 1])
-        w, h = self.backbone.feature_coords_to_image_coords(roi[:, :, 2], roi[:, :, 3])
+        x, y = self.backbone.feature_coords_to_image_coords(roi[:, 0], roi[:, 1])
+        w, h = self.backbone.feature_coords_to_image_coords(roi[:, 2], roi[:, 3])
 
-        # Work one image at a time, noting that this short circuits if there is no label
-        for i_image, image_labels in enumerate(label_x):
+        roi = tf.stack([x,y,w,h], axis=-1)
 
-            if len(image_labels) == 0:
-                continue
+        starfish = labels[tf.count_nonzero(labels, axis = 1) > 0]
 
-            IoUs = np.stack(
-                [
-                    geometry.calculate_IoU(
-                        np.asarray(
-                            [x[i_image, :], y[i_image, :], w[i_image, :], h[i_image, :]]
-                        ),
-                        np.asarray(
-                            [
-                                label["x"],
-                                label["y"],
-                                label["width"],
-                                label["height"],
-                            ]
-                        ),
-                    )
-                    for i_label, label in enumerate(image_labels)
-                ]
-            )
+        def _calc_IoU(sf):
+            return geometry.calculate_IoU(sf, roi) # returns (nroi,) tensor
 
-            # Iterate over positive labels to match them
-            for ilabel in range(len(image_labels)):
+        IoUs = tf.map_fn(_calc_IoU, starfish) # returns (nstarfish, nroi) tensor
 
-                # Grab the RoI with the largest IoU
-                i_roi = np.argmax(IoUs[ilabel, :])
-
-                # If that's a match, then make the assignment and
-                # ignore the RoI in subsequent matching
-                if IoUs[ilabel, i_roi] > 1e-2:
-                    ground_truth_match[i_image, i_roi] = ilabel
-                    IoUs[:, i_roi] = 0.0
-
-            del IoUs
+        # for each starfish, grab the highest IoU roi
+        match = tf.math.argmax(IoUs, axis=1) # returns (nstarfish, ) tensor
 
         # First the regularization term
         loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
         loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
 
-        # Binary loss term, encoded the same way as the RPN classification
-        loss += self.class_loss(
-            np.hstack([ground_truth_match < 0, ground_truth_match > 0]).astype(int),
-            cls,
-        )
+        for i in range(self.n_proposals):
 
-        # Go through the region proposals and reject the ones not associated with a ground truth box
-        for i_image in range(roi.shape[0]):
-            for i_roi in range(roi.shape[1]):
+            positive = (i in match)
+            ground_truth = tf.constant([0.0, 0.1]) if positive else tf.constant([1.0, 0.0])
+            
+            cls_select = tf.nn.softmax(cls[i :: self.n_proposals])
+            loss += self.class_loss(cls_select , ground_truth)
 
-                if ground_truth_match[i_image, i_roi] > -1:
+            if positive:
 
-                    # Bounding box coords and the ground truth
-                    this_roi = label_x[i_image][ground_truth_match[i_image, i_roi]]
+                    truth_box = starfish[tf.squeeze(tf.where(match == i))]
 
-                    # Huber loss, which AFAIK is the same as smooth L1
-                    t_x_star = (x[i_image, i_roi] - this_roi["x"]) / (w[i_image, i_roi])
-                    t_y_star = (y[i_image, i_roi] - this_roi["y"]) / (h[i_image, i_roi])
-                    t_w_star = geometry.safe_log(
-                        this_roi["width"] / (w[i_image, i_roi])
-                    )
-                    t_h_star = geometry.safe_log(
-                        this_roi["height"] / (h[i_image, i_roi])
-                    )
+                    t_x_star = (truth_box[0] - roi[i][0]) / roi[i][0]
+                    t_y_star = (truth_box[1] - roi[i][1]) / roi[i][1]
+                    t_w_star = geometry.safe_log(truth_box[2] / roi[i][2])
+                    t_h_star = geometry.safe_log(truth_box[3] / roi[i][3])
 
                     loss += self.bbox_reg_l1(
                         [t_x_star, t_y_star, t_w_star, t_h_star],
-                        bbox[i_image, i_roi :: roi.shape[1]],
+                        bbox[i :: self.n_proposals],
                     )
 
         return loss

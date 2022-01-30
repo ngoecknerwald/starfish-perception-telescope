@@ -287,10 +287,10 @@ class FasterRCNNWrapper:
                 # Propose regions and compute features with the
                 # backbone associated with the classifier
                 features = self.backbone.extractor(train_x)
-                roi = self.rpnwrapper.propose_regions(features, input_is_images=False)
+                roi = self.rpnwrapper.propose_regions(features)
 
                 # Clip the RoI and pool the features
-                features, roi = self.RoI_pool(features, roi)
+                features, roi = self.RoI_pool((features, roi))
 
                 # Take a gradient step
                 self.classwrapper.training_step(
@@ -314,7 +314,7 @@ class FasterRCNNWrapper:
 
         # Usual invocation, taking advantage of the shared backbone
         features = self.backbone.extractor(image)
-        roi = self.rpnwrapper.propose_regions(features, is_images=False)
+        roi = self.rpnwrapper.propose_regions(features)
         features, roi = self.RoI_pool(features, roi)
 
         # Run the classifier in forward mode
