@@ -170,13 +170,14 @@ class ClassifierWrapper:
 
         cls, bbox, roi, labels = data
 
+        roi = tf.cast(roi, tf.float32)
         # Coordinates and area of the proposed region
         x, y = self.backbone.feature_coords_to_image_coords(roi[:, 0], roi[:, 1])
         w, h = self.backbone.feature_coords_to_image_coords(roi[:, 2], roi[:, 3])
 
         roi = tf.stack([x,y,w,h], axis=-1)
 
-        starfish = labels[tf.count_nonzero(labels, axis = 1) > 0]
+        starfish = labels[tf.math.count_nonzero(labels, axis = 1) > 0]
 
         def _calc_IoU(sf):
             return geometry.calculate_IoU(sf, roi) # returns (nroi,) tensor
@@ -190,28 +191,25 @@ class ClassifierWrapper:
         loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
         loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
 
-        for i in range(self.n_proposals):
+        def _bbox_loss(idx):
 
-            positive = (i in match)
-            ground_truth = tf.constant([0.0, 0.1]) if positive else tf.constant([1.0, 0.0])
-            
-            cls_select = tf.nn.softmax(cls[i :: self.n_proposals])
-            loss += self.class_loss(cls_select , ground_truth)
-
-            if positive:
-
-                    truth_box = starfish[tf.squeeze(tf.where(match == i))]
-
-                    t_x_star = (truth_box[0] - roi[i][0]) / roi[i][0]
-                    t_y_star = (truth_box[1] - roi[i][1]) / roi[i][1]
-                    t_w_star = geometry.safe_log(truth_box[2] / roi[i][2])
-                    t_h_star = geometry.safe_log(truth_box[3] / roi[i][3])
-
-                    loss += self.bbox_reg_l1(
+            truth_box = starfish[tf.squeeze(tf.where(match == idx))]
+            t_x_star = (truth_box[0] - roi[idx][0]) / roi[idx][0]
+            t_y_star = (truth_box[1] - roi[idx][1]) / roi[idx][1]
+            t_w_star = geometry.safe_log(truth_box[2] / roi[idx][2])
+            t_h_star = geometry.safe_log(truth_box[3] / roi[idx][3])
+            return self.bbox_reg_l1(
                         [t_x_star, t_y_star, t_w_star, t_h_star],
-                        bbox[i :: self.n_proposals],
+                        bbox[idx :: self.n_proposals],
                     )
 
+        for i in tf.range(self.n_proposals, dtype=tf.int64):
+            positive = tf.reduce_any(tf.math.equal(i, match))
+            ground_truth = tf.cond(positive, lambda: tf.constant([0.0, 0.1]), lambda: tf.constant([1.0, 0.0]))            
+            cls_select = tf.nn.softmax(cls[i :: self.n_proposals])
+            loss += self.class_loss(cls_select , ground_truth)
+            loss += tf.cond(positive, lambda: _bbox_loss(i), lambda: tf.constant(0.0))
+       
         return loss
 
     def training_step(
