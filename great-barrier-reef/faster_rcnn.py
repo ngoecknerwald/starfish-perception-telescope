@@ -243,14 +243,14 @@ class FasterRCNNWrapper:
 
         # Note that this is associated with self.backbone whereas
         # the rpn is associated with self.backbone_rpn
-        self.classwrapper = classifier.ClassifierWrapper(
+        self.classmodel = classifier.ClassifierModel(
             self.backbone, self.n_proposals, **classifier_kwargs
         )
 
         if classifier_weights is not None:
 
             assert os.path.exists(classifier_weights)
-            self.classwrapper.load_classifier_state(classifier_weights)
+            self.classmodel.load_classifier_state(classifier_weights)
 
         else:  # Do the first order training of the classification weights
 
@@ -293,7 +293,7 @@ class FasterRCNNWrapper:
                 features, roi = self.RoI_pool((features, roi))
 
                 # Take a gradient step
-                self.classwrapper.training_step(
+                self.classmodel.training_step(
                     features,
                     roi.astype(float),
                     [self.data_loader_full.decode_label(_label) for _label in label_x],
@@ -318,7 +318,7 @@ class FasterRCNNWrapper:
         features, roi = self.RoI_pool(features, roi)
 
         # Run the classifier in forward mode
-        return self.classwrapper.predict_classes(
+        return self.classmodel(
             features,
             roi.astype("float32"),
         )
@@ -344,7 +344,7 @@ class FasterRCNNWrapper:
 
         #        # TODO we need to move the backbone call into the training step method for this to work
         #        # TODO we also need to define "fine tuning" learning rates
-        #        self.classwrapper.training_step(
+        #        self.classmodel.train_step(
         #            features,
         #            roi,
         #            [self.data_loader_full.decode_label(_label) for _label in label_x],

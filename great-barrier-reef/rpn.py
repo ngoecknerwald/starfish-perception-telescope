@@ -52,7 +52,7 @@ class RPNLayer(tf.keras.layers.Layer):
         )
         self.outputs = None
 
-    def call(self, x, training=None):
+    def call(self, x, training=False):
 
         print("Python interpreter in RPNLayer.call()")
 

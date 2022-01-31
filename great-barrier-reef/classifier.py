@@ -6,7 +6,7 @@ import numpy as np
 import geometry
 
 
-class Classifier(tf.keras.Model):
+class Classifier(tf.keras.layers.Layer):
     def __init__(
         self,
         n_proposals,
@@ -48,19 +48,20 @@ class Classifier(tf.keras.Model):
             n_proposals * n_classes,
         )
         self.bbox = tf.keras.layers.Dense(n_proposals * 4)
-        self.dropout1 = tf.keras.layers.Dropout(self.dropout)
+        if self.dropout is not None:
+            self.dropout1 = tf.keras.layers.Dropout(self.dropout)
 
     def call(self, x, training=False):
         x = self.conv1(x)
         x = self.flatten(x)
-        if training:
+        if hasattr(self, "dropout1") and training:
             x = self.dropout1(x)
         cls = self.cls(x)
         bbox = self.bbox(x)
         return cls, bbox
 
 
-class ClassifierWrapper:
+class ClassifierModel(tf.keras.Model):
     def __init__(
         self,
         backbone,
@@ -97,6 +98,8 @@ class ClassifierWrapper:
             Dropout parameter to use when training the classification layers.
 
         """
+
+        super().__init__()
 
         # Record for posterity
         self.backbone = backbone
@@ -210,9 +213,9 @@ class ClassifierWrapper:
             loss += self.class_loss(cls_select , ground_truth)
             loss += tf.cond(positive, lambda: _bbox_loss(i), lambda: tf.constant(0.0))
        
-        return loss
+        return {"loss": loss}
 
-    def training_step(
+    def train_step(
         self,
         features,
         roi,
@@ -260,7 +263,7 @@ class ClassifierWrapper:
             if grad is not None
         )
 
-    def predict_classes(self, features, roi):
+    def call(self, features, roi):
         """
         Run the final prediction to map
 
