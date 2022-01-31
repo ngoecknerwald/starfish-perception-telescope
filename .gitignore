@@ -2,3 +2,4 @@
 .DS_Store
 great-barrier-reef/tensorflow-great-barrier-reef
 *.ckpt
+*.zip
