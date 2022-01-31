@@ -83,7 +83,6 @@ class RoIPooling(tf.keras.layers.Layer):
 
         return pooled_areas, roi_clipped
 
-    # TODO need to excise the numpy from this function
     @tf.function
     def _IoU_suppression(self, roi):
 
@@ -93,7 +92,7 @@ class RoIPooling(tf.keras.layers.Layer):
 
         Arguments:
 
-        roi : tf.Tensor or np.ndarray
+        roi : tf.Tensor
             Regions of interest tensor as output by the RPN.
             This tensor must be sorted by descending objectness.
             Shape is [RoI number, (x,y,w,h)].
@@ -108,13 +107,14 @@ class RoIPooling(tf.keras.layers.Layer):
         n_roi = tf.cast(tf.shape(roi)[0], tf.float32)
         scores = tf.reverse(tf.range(n_roi) / n_roi, [0])
 
-        x,y,w,h = tf.unstack(roi, axis = -1)
-        roi_prime = tf.stack([y,x,y+h,x+w], axis = -1)
+        x, y, w, h = tf.unstack(roi, axis=-1)
+        roi_prime = tf.stack([y, x, y + h, x + w], axis=-1)
 
-        indices = tf.image.non_max_suppression(roi_prime, scores, self.n_regions, self.IoU_threshold)
+        indices = tf.image.non_max_suppression(
+            roi_prime, scores, self.n_regions, self.IoU_threshold
+        )
         return tf.gather(roi, indices, batch_dims=0)
 
-    # TODO need to excise the numpy from this function
     @tf.function
     def _clip_RoI(self, roi):
 
@@ -227,7 +227,7 @@ class RoIPooling(tf.keras.layers.Layer):
         Apply RoI pooling for a single image and a single RoI.
         """
         region = feature_map[roi[1] : roi[1] + roi[3], roi[0] : roi[0] + roi[2], :]
-        # Hack to circumvent None division error during graph building 
+        # Hack to circumvent None division error during graph building
         region_shape = region.shape if region.shape[0] is not None else self.pool_size
         # Divide the region into non overlapping areas
         h_step = tf.cast(region_shape[0] / self.pool_size[0], "int32")
