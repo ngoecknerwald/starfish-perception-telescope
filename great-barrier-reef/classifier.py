@@ -215,19 +215,15 @@ class ClassifierModel(tf.keras.Model):
        
         return {"loss": loss}
 
-    def train_step(
-        self,
-        features,
-        roi,
-        label_x,
-    ):
+    @tf.function
+    def train_step(self, data):
 
         """
         Take a training step with the classification network.
 
         Arguments:
 
-        features : tf.tensor
+        data : tuple
             Image convolved by the backbone.
         roi : tf.tensor
             Slice of features output by the RoI pooling operation
@@ -247,11 +243,19 @@ class ClassifierModel(tf.keras.Model):
         # The official faster R-CNN ties everything in an image together, perhaps to avoid duplicate proposals.
         # We can revisit this later.
 
+        features, roi, labels = data
+
         # Classification layer forward pass
         with tf.GradientTape() as tape:
 
             cls, bbox = self.classifier(features, training=True)
-            loss = self.compute_loss(roi, label_x, cls, bbox)
+            loss = tf.reduce_sum(
+                tf.map_fn(
+                    self._compute_loss,
+                    [cls, bbox, rois, labels],
+                    fn_output_signature=(tf.float32),
+                )
+            )
 
         # Compute gradients
         gradients = tape.gradient(loss, self.classifier.trainable_variables)
