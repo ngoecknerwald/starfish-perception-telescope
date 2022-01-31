@@ -104,9 +104,11 @@ class RoIPooling(tf.keras.layers.Layer):
             tensor, [RoI number, (x,y,w,h)].
 
         """
+        # Artificial scores (descending)
         n_roi = tf.cast(tf.shape(roi)[0], tf.float32)
         scores = tf.reverse(tf.range(n_roi) / n_roi, [0])
 
+        # TF NMS takes arguments (y1,x1,y2,x2)
         x, y, w, h = tf.unstack(roi, axis=-1)
         roi_prime = tf.stack([y, x, y + h, x + w], axis=-1)
 
