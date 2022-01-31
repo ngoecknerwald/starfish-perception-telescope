@@ -152,19 +152,12 @@ class ClassifierModel(tf.keras.Model):
     def _compute_loss(self, data):
         """
         Compute the loss term for the full network.
+        Works on one image at a time. 
 
         Arguments:
 
-        roi : tf.Tensor or np.ndarray
-            Tensor of dimension [n_images, n_rois, xywh] encoding the position of the RoI.
-        label_x : list of dict
-            Decoded ground truth annotations.
-        cls : tf.Tensor
-            Classification score of dimension [n_images, n_rois * n_classes = 2]
-            encoded the same was as the RPN.
-        bbox : tf.Tensor
-            Bounding box regression of dimension [n_images, n_rois * 4]
-            encoded the same way as the RPN.
+        data : (tf.tensor, tf.tensor, tf.tensor, tf.tensor)
+            Packed classifier scores, bbox regressors, roi, and labels for this image.
 
         """
 
@@ -223,12 +216,8 @@ class ClassifierModel(tf.keras.Model):
 
         Arguments:
 
-        data : tuple
-            Image convolved by the backbone.
-        roi : tf.tensor
-            Slice of features output by the RoI pooling operation
-        label_x : list of dict
-            Decoded grond truth labels for the training minibatch.
+        data : (tf.tensor, tf.tensor, tf.tensor)
+            Packed features, roi, and labels for this minibatch.
 
         """
 
