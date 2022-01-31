@@ -109,7 +109,7 @@ class RoIPooling(tf.keras.layers.Layer):
         assert roi.shape[2] == 4  # x,y,w,h
 
         # Indices to output
-        index_tensor = np.empty((roi.shape[0], self.n_regions, 4), int)
+        index_tensor = np.empty((roi.shape[0], self.n_regions), int)
 
         # loop over batch dim
         for i in range(roi.shape[0]):
@@ -154,11 +154,9 @@ class RoIPooling(tf.keras.layers.Layer):
                 keep = np.concatenate((keep, arr))
 
             # Fill out the index tensor
-            index_tensor[i, :, :] = keep[: self.n_regions, np.newaxis]
+            index_tensor[i, :] = keep[: self.n_regions]
 
-        return tf.experimental.numpy.take_along_axis(
-            roi, index_tensor.astype("int32"), axis=1
-        )
+        return tf.gather(roi, index_tensor, batch_dims=1)
 
     # TODO need to excise the numpy from this function
     @tf.function

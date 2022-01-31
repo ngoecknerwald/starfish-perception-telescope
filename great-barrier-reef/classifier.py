@@ -206,7 +206,7 @@ class ClassifierModel(tf.keras.Model):
             loss += self.class_loss(cls_select , ground_truth)
             loss += tf.cond(positive, lambda: _bbox_loss(i), lambda: tf.constant(0.0))
        
-        return {"loss": loss}
+        return loss
 
     @tf.function
     def train_step(self, data):
@@ -241,7 +241,7 @@ class ClassifierModel(tf.keras.Model):
             loss = tf.reduce_sum(
                 tf.map_fn(
                     self._compute_loss,
-                    [cls, bbox, rois, labels],
+                    [cls, bbox, roi, labels],
                     fn_output_signature=(tf.float32),
                 )
             )
@@ -295,7 +295,7 @@ class ClassifierModel(tf.keras.Model):
         w = roi[:, :, 2] * geometry.safe_exp(bbox[:, :, 2])
         h = roi[:, :, 3] * geometry.safe_exp(bbox[:, :, 3])
 
-        return tf.stack([objectness, x, y, w, h], axis=-1)
+        return tf.stack([x, y, w, h, objectness], axis=-1)
 
     def read_scores(data):
         """
