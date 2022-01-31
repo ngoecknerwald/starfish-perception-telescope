@@ -217,7 +217,7 @@ class ClassifierModel(tf.keras.Model):
         Arguments:
 
         data : (tf.tensor, tf.tensor, tf.tensor)
-            Packed features, roi, and labels for this minibatch.
+            Pooled features, roi, and labels for this minibatch.
 
         """
 
@@ -261,12 +261,8 @@ class ClassifierModel(tf.keras.Model):
         """
         Run the final prediction to map
 
-        features : tf.tensor
-            RoI pooled features for a minibatch.
-        roi : tf.tensor
-            Slice of features output by the RoI pooling operation
-        label_x : list of dict
-            Decoded grond truth labels for the training minibatch.
+        data : (tf.tensor, tf.tensor)
+            Pooled features and  roi for this minibatch.
 
         """
         pooled_features, roi = data
@@ -302,6 +298,13 @@ class ClassifierModel(tf.keras.Model):
         return tf.stack([objectness, x, y, w, h], axis=-1)
 
     def read_scores(data):
+        """
+        Convert network output to dicts of predicted locations.
+
+        data : tensor of shape (None, self.n_proposals, 5)
+        where the last axis containts (x,y,w,h,score).
+
+        """
 
         x,y,w,h,score = tf.unstack(data, axis=-1)
         return [
