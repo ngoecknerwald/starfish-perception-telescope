@@ -232,12 +232,12 @@ class ClassifierModel(tf.keras.Model):
         # The official faster R-CNN ties everything in an image together, perhaps to avoid duplicate proposals.
         # We can revisit this later.
 
-        features, roi, labels = data
+        pooled_features, roi, labels = data
 
         # Classification layer forward pass
         with tf.GradientTape() as tape:
 
-            cls, bbox = self.classifier(features, training=True)
+            cls, bbox = self.classifier(pooled_features, training=True)
             loss = tf.reduce_sum(
                 tf.map_fn(
                     self._compute_loss,
@@ -256,7 +256,8 @@ class ClassifierModel(tf.keras.Model):
             if grad is not None
         )
 
-    def call(self, features, roi):
+    @tf.function
+    def call(self, data):
         """
         Run the final prediction to map
 
@@ -268,49 +269,51 @@ class ClassifierModel(tf.keras.Model):
             Decoded grond truth labels for the training minibatch.
 
         """
+        pooled_features, roi = data
 
-        cls, bbox = self.classifier(features)
+        cls, bbox = self.classifier(pooled_features)
 
         # Same as rpnwrapper.propose_regions()
-        objectness_l0 = cls[:, : features.shape[1]].numpy()
-        objectness_l1 = cls[:, features.shape[1] :].numpy()
+        objectness_l0 = cls[:, : self.n_proposals]
+        objectness_l1 = cls[:, self.n_proposals :]
 
         # Need to unpack a bit and hit with softmax
-        objectness_l0 = objectness_l0.reshape((objectness_l0.shape[0], -1))
-        objectness_l1 = objectness_l1.reshape((objectness_l1.shape[0], -1))
         objectness = tf.nn.softmax(
-            np.stack([objectness_l0, objectness_l1]), axis=0
-        ).numpy()
+            tf.stack([objectness_l0, objectness_l1]), axis=0
+        )
 
         # Cut to the positive bit
-        objectness = objectness[1, :, :]
+        objectness = objectness[1]
 
-        xx = roi[:, :, 0] - (bbox[:, : roi.shape[1]].numpy() * roi[:, :, 2])
-        yy = roi[:, :, 1] - (
-            bbox[:, roi.shape[1] : 2 * roi.shape[1]].numpy() * roi[:, :, 3]
-        )
-        ww = (
-            roi[:, :, 2]
-            * geometry.safe_exp(bbox[:, 2 * roi.shape[1] : 3 * roi.shape[1]]).numpy()
-        )
-        hh = (
-            roi[:, :, 3]
-            * geometry.safe_exp(bbox[:, 3 * roi.shape[1] : 4 * roi.shape[1]]).numpy()
-        )
+        # Convert roi to image coordinates
+        roi = tf.cast(roi, tf.float32)
+        x, y = self.backbone.feature_coords_to_image_coords(roi[:,:,0], roi[:,:,1])
+        w, h = self.backbone.feature_coords_to_image_coords(roi[:,:,2], roi[:,:,3])
+        roi = tf.stack([x,y,w,h], axis=-1)
 
-        x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
-        w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
+        bbox = tf.reshape(bbox, (-1, 4, self.n_proposals))
+        bbox = tf.transpose(bbox, perm = [0,2,1])
 
+        x = roi[:, :, 0] - (bbox[:, :, 0] * roi[:, :, 2])
+        x = roi[:, :, 0] - (bbox[:, :, 1] * roi[:, :, 3])
+        w = roi[:, :, 2] * geometry.safe_exp(bbox[:, :, 2])
+        h = roi[:, :, 3] * geometry.safe_exp(bbox[:, :, 3])
+
+        return tf.stack([objectness, x, y, w, h], axis=-1)
+
+    def read_scores(data):
+
+        x,y,w,h,score = tf.unstack(data, axis=-1)
         return [
             [
                 {
-                    "x": x[i_image, i_roi],
-                    "y": y[i_image, i_roi],
-                    "width": w[i_image, i_roi],
-                    "height": h[i_image, i_roi],
-                    "score": objectness[i_image, i_roi],
+                    "x": x[i_image, i_roi].numpy(),
+                    "y": y[i_image, i_roi].numpy(),
+                    "width": w[i_image, i_roi].numpy(),
+                    "height": h[i_image, i_roi].numpy(),
+                    "score": objectness[i_image, i_roi].numpy(),
                 }
-                for i_roi in range(roi.shape[1])
+                for i_roi in range(self.n_proposals)
             ]
-            for i_image in range(roi.shape[0])
+            for i_image in range(score.shape[0])
         ]
