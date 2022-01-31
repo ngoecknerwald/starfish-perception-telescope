@@ -73,7 +73,8 @@ class RoIPooling(tf.keras.layers.Layer):
         features, roi = data
 
         # Deduplicate and clip the input RoI
-        roi_clipped = self._clip_RoI(self._IoU_supression(roi))
+        roi_nms = tf.map_fn(self._IoU_suppression, roi)
+        roi_clipped = self._clip_RoI(roi_nms)
 
         # Use map_fn to iterate over images
         pooled_areas = tf.map_fn(
@@ -84,7 +85,7 @@ class RoIPooling(tf.keras.layers.Layer):
 
     # TODO need to excise the numpy from this function
     @tf.function
-    def _IoU_supression(self, roi):
+    def _IoU_suppression(self, roi):
 
         """
         Remove duplicate RoIs from the stack produced
@@ -95,68 +96,23 @@ class RoIPooling(tf.keras.layers.Layer):
         roi : tf.Tensor or np.ndarray
             Regions of interest tensor as output by the RPN.
             This tensor must be sorted by descending objectness.
-            Shape is [image number, RoI number, (x,y,w,h)].
+            Shape is [RoI number, (x,y,w,h)].
 
         Outputs :
 
         roi_pruned : tensor
             Pruned RoI tensor. Shape is the same as the input roi
-            tensor, [image number, RoI number, (x,y,w,h)].
+            tensor, [RoI number, (x,y,w,h)].
 
         """
+        n_roi = tf.cast(tf.shape(roi)[0], tf.float32)
+        scores = tf.reverse(tf.range(n_roi) / n_roi, [0])
 
-        # Sanity checking
-        assert roi.shape[2] == 4  # x,y,w,h
+        x,y,w,h = tf.unstack(roi, axis = -1)
+        roi_prime = tf.stack([y,x,y+h,x+w], axis = -1)
 
-        # Indices to output
-        index_tensor = np.empty((roi.shape[0], self.n_regions), int)
-
-        # loop over batch dim
-        for i in range(roi.shape[0]):
-
-            # double loop over roi in batch
-            # fix a pivot starting at 0
-            # for each pivot, discard all elements with IoU > threshold
-            # next pivot is the next element that has been kept
-
-            discard = []
-
-            for pivot in range(roi.shape[1] - 1):
-
-                if pivot in discard:
-                    continue
-
-                for j in range(pivot + 1, roi.shape[1]):
-
-                    # Logic should short circuit here and not evaluate IoU
-                    # if it's already in discard
-                    if (
-                        j not in discard
-                        and geometry.calculate_IoU(
-                            (roi[i, pivot, :]),
-                            (roi[i, j, :]),
-                        )
-                        > self.IoU_threshold
-                    ):
-                        discard.append(j)
-
-            # Pick out what's remaining
-            keep = np.setdiff1d(np.arange(roi.shape[1]), discard, assume_unique=True)
-
-            # Insufficient regions
-            if keep.shape[0] < self.n_regions:
-                arr = np.array(
-                    [
-                        roi.shape[1] - 1,
-                    ]
-                    * (self.n_regions - keep.shape[0])
-                )
-                keep = np.concatenate((keep, arr))
-
-            # Fill out the index tensor
-            index_tensor[i, :] = keep[: self.n_regions]
-
-        return tf.gather(roi, index_tensor, batch_dims=1)
+        indices = tf.image.non_max_suppression(roi_prime, scores, self.n_regions, self.IoU_threshold)
+        return tf.gather(roi, indices, batch_dims=0)
 
     # TODO need to excise the numpy from this function
     @tf.function
