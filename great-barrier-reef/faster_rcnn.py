@@ -341,6 +341,10 @@ class FasterRCNNWrapper:
 
         return minibatch_return
 
+    # We need to figure out if the correct order is what we're calling (x, y) or (y, x)
+    # because the documentation on the website is unclear about this
+    #
+    # From code other people have posted it seems to be (x, y, w, h) so I'm leaving that for now
     @staticmethod
     def _region_to_string(region):
         return "%02f %d %d %d %d" % (
