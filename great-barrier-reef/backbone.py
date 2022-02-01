@@ -167,12 +167,17 @@ class Backbone(tf.keras.layers.Layer):
         self.extractor.trainable = False
 
         # It's a plain stack of layers, so let's just use Sequential for readability
-        # TODO do we want to put the dropout before or after the GAP2D? We originally
-        # had dropout before the GAP but it makes more sense after in my head. Will revisit later.
+        # Note that we've added a bunch of data augmentation to the stack here to prevent
+        # overfitting. Those parameters are chosen quasi-randomly based on the distribution
+        # of starfish that we'd expect to see in the validation/test set.
         model = tf.keras.Sequential(
             [
+                tf.keras.layers.RandomZoom((-0.5, 0.5)),
+                tf.keras.layers.RandomFlip("horizontal"),
+                tf.keras.layers.RandomRotation(0.5),
+                tf.keras.layers.RandomContrast(0.5),
                 self.extractor,
-                tf.keras.layers.Dropout(0.2),
+                tf.keras.layers.Dropout(0.4),
                 tf.keras.layers.GlobalAveragePooling2D(),
                 tf.keras.layers.Dense(1),
             ]
@@ -261,8 +266,11 @@ class Backbone_InceptionResNetV2(Backbone):
         )
 
         # The things connected to this model will need to know output geometry
-        self._input_shape = tf.constant(input_shape, dtype="float32")
-        self._output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
+        if input_shape is not None:
+            self._input_shape = tf.constant(input_shape, dtype="float32")
+            self._output_shape = tf.constant(
+                self.network.output_shape[1:], dtype="float32"
+            )
 
         # Fold the image preprocessing into the model
         self.extractor = tf.keras.Sequential(
@@ -299,8 +307,11 @@ class Backbone_VGG16(Backbone):
             pooling=None,
         )
 
-        self._input_shape = tf.constant(input_shape, dtype="float32")
-        self._output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
+        if input_shape is not None:
+            self._input_shape = tf.constant(input_shape, dtype="float32")
+            self._output_shape = tf.constant(
+                self.network.output_shape[1:], dtype="float32"
+            )
 
         # Fold the image preprocessing into the model
         # The different pretrained models expect different inputs, so propagate that into here
@@ -336,8 +347,11 @@ class Backbone_ResNet50(Backbone):
             pooling=None,
         )
 
-        self._input_shape = tf.constant(input_shape, dtype="float32")
-        self._output_shape = tf.constant(self.network.output_shape[1:], dtype="float32")
+        if input_shape is not None:
+            self._input_shape = tf.constant(input_shape, dtype="float32")
+            self._output_shape = tf.constant(
+                self.network.output_shape[1:], dtype="float32"
+            )
 
         # Fold the image preprocessing into the model
         # The different pretrained models expect different inputs, so propagate that into here

@@ -279,6 +279,7 @@ class DataLoaderThumbnail(DataLoader):
             shuffle=shuffle,
             subset="training",
             image_size=image_size,
+            crop_to_aspect_ratio=True,
         )
 
         self.validation = image_dataset_from_directory(
@@ -292,6 +293,7 @@ class DataLoaderThumbnail(DataLoader):
             shuffle=shuffle,
             subset="validation",
             image_size=image_size,
+            crop_to_aspect_ratio=True,
         )
 
     def get_training(self, **kwargs):
