@@ -136,8 +136,9 @@ class FasterRCNNWrapper:
             pass
 
         elif backbone_weights.lower() == "finetune":  # Load weights from a file
-            # Let the backbone for finetuning infer the thumbnail shape on the fly
-            init_args = {"input_shape": None, "weights": "imagenet"}
+            # TODO this should be able to infer weights on the fly, but it was throwing
+            # an error with the geometry methods
+            init_args = {"input_shape": (96, 96, 3), "weights": "imagenet"}
             spine = backbone.instantiate(backbone_type, init_args)
 
             # Data loading

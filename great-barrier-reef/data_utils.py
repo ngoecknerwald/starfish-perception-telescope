@@ -186,7 +186,7 @@ class DataLoaderThumbnail(DataLoader):
         super().__init__(**kwargs)
 
     def _load_dataset(
-        self, batch_size=64, validation_split=0.2, shuffle=True, image_size=(128, 128)
+        self, batch_size=64, validation_split=0.2, shuffle=True, image_size=(96, 96)
     ):
         """
         Internal method to create and load the thumbnail dataset from the input files.
@@ -241,22 +241,13 @@ class DataLoaderThumbnail(DataLoader):
                     len(annotation) > 0
                 ):  # If there are starfish, then pick one at random
                     choice = np.random.randint(len(annotation))
-                    xmin = np.maximum(
-                        0,
-                        int(
-                            annotation[choice]["x"]
-                            + annotation[choice]["width"] / 2
-                            - image_size[1] / 2
-                        ),
+                    xmin = annotation[choice]["x"]
+                    ymin = annotation[choice]["y"]
+                    local_size = (
+                        annotation[choice]["width"],
+                        annotation[choice]["height"],
                     )
-                    ymin = np.maximum(
-                        0,
-                        int(
-                            annotation[choice]["y"]
-                            + annotation[choice]["height"] / 2
-                            - image_size[0] / 2
-                        ),
-                    )
+
                     outdir = os.path.join(
                         self.input_file, "train_images_thumb", "starfish"
                     )
@@ -266,11 +257,12 @@ class DataLoaderThumbnail(DataLoader):
                     outdir = os.path.join(
                         self.input_file, "train_images_thumb", "background"
                     )
+                    local_size = image_size
 
                 # Crop and save the results
                 slice_image = Image.fromarray(
                     local_image[
-                        ymin : ymin + image_size[0], xmin : xmin + image_size[1], :
+                        ymin : ymin + local_size[1], xmin : xmin + local_size[0], :
                     ]
                 )
                 slice_image.save(os.path.join(outdir, "%d.jpg" % index))
