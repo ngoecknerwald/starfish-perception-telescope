@@ -174,10 +174,10 @@ class Backbone(tf.keras.layers.Layer):
             [
                 tf.keras.layers.RandomZoom((-0.5, 0.5)),
                 tf.keras.layers.RandomFlip("horizontal"),
-                tf.keras.layers.RandomRotation(0.5),
-                tf.keras.layers.RandomContrast(0.5),
+                tf.keras.layers.RandomRotation(0.25),
+                tf.keras.layers.RandomContrast(0.25),
                 self.extractor,
-                tf.keras.layers.Dropout(0.4),
+                tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.GlobalAveragePooling2D(),
                 tf.keras.layers.Dense(1),
             ]
