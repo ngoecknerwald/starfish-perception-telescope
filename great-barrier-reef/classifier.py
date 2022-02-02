@@ -65,6 +65,9 @@ class ClassifierModel(tf.keras.Model):
     def __init__(
         self,
         backbone,
+        rpn,
+        pool,
+        label_decoder,
         n_proposals,
         dense_layers=512,
         learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
@@ -103,6 +106,9 @@ class ClassifierModel(tf.keras.Model):
 
         # Record for posterity
         self.backbone = backbone
+        self.rpn = rpn
+        self.pool = pool
+        self.label_decoder = label_decoder
         self.n_proposals = n_proposals
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
@@ -216,8 +222,8 @@ class ClassifierModel(tf.keras.Model):
 
         Arguments:
 
-        data : (tf.tensor, tf.tensor, tf.tensor)
-            Pooled features, roi, and labels for this minibatch.
+        data : (tf.tensor, labels)
+            Packed images and labels.
 
         """
 
@@ -232,12 +238,19 @@ class ClassifierModel(tf.keras.Model):
         # The official faster R-CNN ties everything in an image together, perhaps to avoid duplicate proposals.
         # We can revisit this later.
 
-        pooled_features, roi, labels = data
+        # Run the feature extractor
+        features = self.backbone(data[0])
+
+        # Accumulate RoI data
+        labels = self.label_decoder(data[1])
+
+        # Loop over images accumulating RoI proposals
+        features, roi = self.pool(features, self.rpn.propose_regions(features))
 
         # Classification layer forward pass
         with tf.GradientTape() as tape:
 
-            cls, bbox = self.classifier(pooled_features, training=True)
+            cls, bbox = self.classifier(features, training=True)
             loss = tf.reduce_sum(
                 tf.map_fn(
                     self._compute_loss,
@@ -255,6 +268,8 @@ class ClassifierModel(tf.keras.Model):
             for grad, var in zip(gradients, self.classifier.trainable_variables)
             if grad is not None
         )
+
+        return {'loss': loss}
 
     @tf.function
     def call(self, data):
