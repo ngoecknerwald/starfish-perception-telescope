@@ -246,7 +246,12 @@ class FasterRCNNWrapper:
         # Note that this is associated with self.backbone whereas
         # the rpn is associated with self.backbone_rpn
         self.classmodel = classifier.ClassifierModel(
-            self.backbone, self.n_proposals, **classifier_kwargs
+            self.backbone, 
+            self.rpnwrapper,
+            self.RoI_pool, 
+            self.data_loader_full.decode_label,
+            self.n_proposals, 
+            **classifier_kwargs
         )
 
         if classifier_weights is not None:
@@ -258,51 +263,27 @@ class FasterRCNNWrapper:
 
             self.train_classifier(epochs)
 
-    def train_classifier(self, epochs):
+    def train_classifier(self, epochs, kwargs={}):
         """
-        Train the classifier holding the backbone weights fixed. Written
-        as a method in FasterRCNNWrapper because the training step needs
-        access to the backbone, RPN, and RoI pooling layers.
+        Main training loop iterating over a dataset.
 
         Arguments:
 
+        train_dataset: tensorflow dataset
+            Dataset of input images. Minibatch size and validation
+            split are determined when this is created.
         epochs : int
             Number of epochs to run training for.
 
-        This method does not fine tune the backbone weights.
-
         """
-
         training = self.data_loader_full.get_training()
 
-        # This does a forward pass through the RPN
-        # and hands the proposed regions + features to the classifier
-        for epoch in range(epochs):
+        self.classmodel.compile(
+            optimizer=self.optimizer,
+        )
+        self.classmodel.fit(training, epochs=epochs, **kwargs)
 
-            print("Classifier training epoch %d" % epoch, end="")
-
-            for i, (train_x, label_x) in enumerate(training):
-
-                if i % 100 == 0:
-                    print(".", end="")
-
-                # Propose regions and compute features with the
-                # backbone associated with the classifier
-                features = self.backbone.extractor(train_x)
-                roi = self.rpnwrapper.propose_regions(features)
-
-                # Clip the RoI and pool the features
-                features, roi = self.RoI_pool((features, roi))
-
-                # Take a gradient step
-                self.classmodel.training_step(
-                    features,
-                    roi.astype(float),
-                    [self.data_loader_full.decode_label(_label) for _label in label_x],
-                )
-
-            print("")
-
+#TODO: make this function compatible with the new classifier architecture
     def predict(self, image, return_dict=False):
 
         """
@@ -313,6 +294,8 @@ class FasterRCNNWrapper:
         Image : tf.tensor
             Minibatch of image(s) to register a prediction for.
         """
+        print("Function not currently compatible with classifier architecture")
+        assert(False)
 
         # Usual invocation, taking advantage of the shared backbone
         features = self.backbone.extractor(image)
