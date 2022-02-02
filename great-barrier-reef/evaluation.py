@@ -4,11 +4,88 @@ import tensorflow as tf
 import geometry
 
 
+class TopNRegionsF2(tf.keras.metrics.Metric):
+
+    """
+    Class wrapper around the F2 score metric called when training the RPN.
+
+    Declare that the top N regions are positive and compute an F2 score
+    against the ground truth. Used as a training / validation metric
+    when fitting the RPN model.
+
+    Assumes that all of the first N proposals handed to it are positive.
+    This is useful for the RPN where all we *really* care about is recall
+    and always pass the same size list to the RoI pooling operation.
+
+
+    """
+
+    def __init__(self, N, **kwargs):
+        super().__init__(**kwargs)
+        self.N = N
+        self.f2s = self.add_weight(name="f2", initializer="zeros")
+
+    def update_state(self, y_true, y_pred):
+
+        print("Python interpreter in TopNRegionsF2.update_state")
+        print("y_true")
+        print(y_true)
+        print("y_pred")
+        print(y_pred)
+
+        self.f2s.assign_add(
+            tf.convert_to_tensor(
+                [
+                    0.0,
+                ]
+            )
+        )
+
+    def result(self):
+        return self.f2s
+
+
+class ThresholdF2(tf.keras.metrics.Metric):
+    """
+    Class wrapper for evaluation with a fixed classification
+    score threshold.
+
+    Declare that any region with score above threshold
+    counts as a positive hit, then compute the resulting F2 score.
+
+    """
+
+    def __init__(self, thresh, **kwargs):
+        super().__init__(**kwargs)
+        self.thresh = thresh
+        self.f2s = self.add_weight(name="f2", initializer="zeros")
+
+    def update_state(self, y_true, y_pred):
+
+        print("Python interpreter in TopNRegionsF2.update_state")
+        print("y_true")
+        print(y_true)
+        print("y_pred")
+        print(y_pred)
+
+        self.f2s.assign_add(
+            tf.convert_to_tensor(
+                [
+                    0.0,
+                ]
+            )
+        )
+
+    def result(self):
+        return self.f2s
+
+
 @tf.function
 def compute_F2_scores(
     proposals,
     labels,
-    thresholds=[0.3, 0.5, 0.8],
+    ignore,
+    IoU_thresholds=[0.3, 0.5, 0.8],
 ):
 
     """
@@ -23,7 +100,9 @@ def compute_F2_scores(
     labels : tf.tensor(None, None, 4)
          Coordinates of the ground truth labels. Axes and coordinate systems should match
          the proposals argument.
-    thresholds : list of float
+    ignore : tf.tensor(None, None, 1)
+        Binary tensor indicating which RoI should be ignored when
+    IoU_thresholds : list of float
         Minimum IoU to consider a proposal and a label a match. The F2 score is
         a reduce_mean() over the set of thresholds provided.
     """
@@ -32,12 +111,21 @@ def compute_F2_scores(
 
     # Make an analogue to functools.partial()
     def _compute_F2(data):
-        return compute_FBeta_score(*data, thresholds=thresholds, beta=2.0)
+        return compute_FBeta_score(*data, thresholds=IoU_thresholds, beta=2.0)
 
-    return tf.map_fn(_compute_F2, (proposals, labels), fn_output_signature=tf.float32)
+    return tf.map_fn(
+        _compute_F2, (proposals, labels, ignore), fn_output_signature=tf.float32
+    )
 
 
-def compute_FBeta_score(proposal, label, thresholds, beta):
+def compute_FBeta_score(proposal, label, ignore, thresholds, beta):
+
+    """
+    Note that this is different from the usual F2 score in that if two duplicate
+    proposals match a ground truth object they are *both* scored as true positives
+    and not only one of them. This is more applicable to testing the RPN on the validation
+    set because we expect some duplicate proposals for IoU suppression.
+    """
 
     print("Python interpreter in evaluation.compute_FBeta_score")
 
@@ -70,11 +158,14 @@ def compute_FBeta_score(proposal, label, thresholds, beta):
 
                 imatch = tf.where(
                     tf.logical_and(
-                        geometry.calculate_IoU(
-                            thislabel, tf.transpose(proposal, [1, 0])
-                        )
-                        > threshold,
-                        matched == 0.0,
+                        tf.logical_and(
+                            geometry.calculate_IoU(
+                                thislabel, tf.transpose(proposal, [1, 0])
+                            )
+                            > threshold,
+                            matched == 0.0,
+                        ),
+                        tf.logical_not(ignore),
                     ),
                     1.0,
                     0.0,
@@ -89,7 +180,9 @@ def compute_FBeta_score(proposal, label, thresholds, beta):
                     false_neg[ithreshold] += 1.0
 
         # False positive
-        false_pos[ithreshold] = tf.reduce_sum([1.0 - tf.convert_to_tensor(matched)])
+        false_pos[ithreshold] = tf.reduce_sum(
+            [(1.0 - tf.convert_to_tensor(matched)) * tf.cast(ignore, tf.float32)]
+        )
 
     # Covert to tensors
     true_pos = tf.convert_to_tensor(true_pos)

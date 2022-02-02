@@ -7,6 +7,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 import numpy as np
 import geometry
+import evaluation
 
 
 class RPNLayer(tf.keras.layers.Layer):
@@ -652,6 +653,10 @@ class RPNWrapper:
             clipvalue=self.clipvalue,
         )
 
+        # F2 metric for the RPN, have it look at all positive
+        # regions so pass N=None
+        self.validation_f2 = evaluation.TopNRegionsF2(None)
+
     def train_rpn(self, train_dataset, epochs=6, kwargs={}):
         """
         Main training loop iterating over a dataset.
@@ -666,7 +671,12 @@ class RPNWrapper:
 
         """
 
-        self.rpnmodel.compile(optimizer=self.optimizer)
+        self.rpnmodel.compile(
+            optimizer=self.optimizer,
+            metrics=[
+                self.validation_f2,
+            ],
+        )
         self.rpnmodel.fit(train_dataset, epochs=epochs, **kwargs)
 
     def save_rpn_state(self, filename):

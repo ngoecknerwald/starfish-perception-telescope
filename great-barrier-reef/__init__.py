@@ -5,3 +5,4 @@ from . import data_utils
 from . import geometry
 from . import roi_pooling
 from . import rpn
+from . import evaluation
