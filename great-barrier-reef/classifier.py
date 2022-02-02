@@ -186,10 +186,13 @@ class ClassifierModel(tf.keras.Model):
 
         for i in tf.range(self.n_proposals, dtype=tf.int64):
             positive = tf.reduce_any(tf.math.equal(i, match))
-            ground_truth = tf.cond(positive, lambda: tf.constant([0.0, 0.1]), lambda: tf.constant([1.0, 0.0]))            
+            if positive:
+                ground_truth = tf.constant([0.0, 0.1])
+                loss += _bbox_loss(i)
+            else:
+                ground_truth = tf.constant([1.0, 0.0])
             cls_select = tf.nn.softmax(cls[i :: self.n_proposals])
             loss += self.class_loss(cls_select , ground_truth)
-            loss += tf.cond(positive, lambda: _bbox_loss(i), lambda: tf.constant(0.0))
        
         return loss
 
@@ -224,7 +227,7 @@ class ClassifierModel(tf.keras.Model):
         labels = self.label_decoder(data[1])
 
         # Loop over images accumulating RoI proposals
-        features, roi = self.pool(features, self.rpn.propose_regions(features))
+        features, roi = self.pool((features, self.rpn.propose_regions(features)))
 
         # Classification layer forward pass
         with tf.GradientTape() as tape:
