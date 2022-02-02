@@ -420,8 +420,8 @@ class RPNModel(tf.keras.Model):
         tf.debugging.assert_all_finite(cls, "NaN encountered in RPN training.")
 
         # Regularization loss
-        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
-        loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
+        loss = tf.nn.l2_loss(cls) / (100.0 * tf.size(cls, out_type=tf.float32))
+        loss += tf.nn.l2_loss(bbox) / (10.0 * tf.size(bbox, out_type=tf.float32))
 
         # Work one RoI at a time
         for i in range(self.roi_minibatch_per_image):
@@ -578,16 +578,12 @@ class RPNWrapper:
         IoU_neg_threshold=0.01,
         rpn_dropout=0.2,
         learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[
-                10000,
-            ],
-            values=[1e-3, 1e-4],
+            boundaries=[10000, 20000],
+            values=[1e-3, 1e-4, 1e-5],
         ),
         weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[
-                10000,
-            ],
-            values=[1e-4, 1e-5],
+            boundaries=[10000, 20000],
+            values=[1e-5, 1e-6, 1e-7],
         ),
         momentum=0.9,
         clipvalue=1e2,
@@ -656,7 +652,7 @@ class RPNWrapper:
             clipvalue=self.clipvalue,
         )
 
-    def train_rpn(self, train_dataset, epochs=5, kwargs={}):
+    def train_rpn(self, train_dataset, epochs=6, kwargs={}):
         """
         Main training loop iterating over a dataset.
 
