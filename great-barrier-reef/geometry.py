@@ -85,11 +85,12 @@ def safe_log(x):
 @tf.function
 def batch_sort(arr, inds, n):
     """
-    Sort a tensor arr by indices inds returning the first n.
+    Sort a flattened tensor arr by indices inds returning the first n.
 
     Note that this rebuilds a computation graph when n changes.
     """
 
     print("Python interpreter in geometry.batch_sort()")
-
-    return tf.gather(tf.reshape(arr, (arr.shape[0], -1)), inds, batch_dims=1)[:, :n]
+    assert(len(tf.shape(arr))==2)
+    
+    return tf.gather(arr, inds, batch_dims=1)[:, :n]

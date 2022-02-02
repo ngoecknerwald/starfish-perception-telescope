@@ -253,8 +253,9 @@ class RPNModel(tf.keras.Model):
         objectness_l1 = cls[:, :, :, self.k :]
 
         # Need to unpack a bit and hit with softmax
-        objectness_l0 = tf.reshape(objectness_l0, (objectness_l0.shape[0], -1))
-        objectness_l1 = tf.reshape(objectness_l1, (objectness_l1.shape[0], -1))
+        flatten = tf.keras.layers.Flatten()
+        objectness_l0 = flatten(objectness_l0)
+        objectness_l1 = flatten(objectness_l1)
         objectness = tf.nn.softmax(tf.stack([objectness_l0, objectness_l1]), axis=0)
 
         # Cut to the one-hot bit
@@ -289,10 +290,10 @@ class RPNModel(tf.keras.Model):
         argsort = tf.argsort(objectness, axis=-1, direction="DESCENDING")
 
         # Sort things by objectness
-        xx = geometry.batch_sort(xx, argsort, self.n_roi_output)
-        yy = geometry.batch_sort(yy, argsort, self.n_roi_output)
-        ww = geometry.batch_sort(ww, argsort, self.n_roi_output)
-        hh = geometry.batch_sort(hh, argsort, self.n_roi_output)
+        xx = geometry.batch_sort(flatten(xx), argsort, self.n_roi_output)
+        yy = geometry.batch_sort(flatten(yy), argsort, self.n_roi_output)
+        ww = geometry.batch_sort(flatten(ww), argsort, self.n_roi_output)
+        hh = geometry.batch_sort(flatten(hh), argsort, self.n_roi_output)
 
         # Return in feature space
         if not is_images:
