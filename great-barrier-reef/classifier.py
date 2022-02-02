@@ -1,6 +1,7 @@
 # Final classification network and training wrapper
 
 import tensorflow as tf
+import tensorflow_addons as tfa
 import numpy as np
 import geometry
 
@@ -49,11 +50,12 @@ class Classifier(tf.keras.layers.Layer):
         self.bbox = tf.keras.layers.Dense(n_proposals * 4)
         if self.dropout is not None:
             self.dropout1 = tf.keras.layers.Dropout(self.dropout)
-
-    def call(self, x, training=False):
+    @tf.function(
+      input_signature=[tf.TensorSpec(shape=[None, 10, 3, 3, 2048], dtype=tf.float32)])
+    def call(self, x):
         x = self.conv1(x)
         x = self.flatten(x)
-        if hasattr(self, "dropout1") and training:
+        if hasattr(self, "dropout1") and True:
             x = self.dropout1(x)
         cls = self.cls(x)
         bbox = self.bbox(x)
@@ -159,7 +161,6 @@ class ClassifierModel(tf.keras.Model):
         roi = tf.stack([x,y,w,h], axis=-1)
 
         starfish = labels[tf.math.count_nonzero(labels, axis = 1) > 0]
-
         def _calc_IoU(sf):
             return geometry.calculate_IoU(sf, roi) # returns (nroi,) tensor
 
@@ -173,8 +174,10 @@ class ClassifierModel(tf.keras.Model):
         loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
 
         def _bbox_loss(idx):
-
-            truth_box = starfish[tf.squeeze(tf.where(match == idx))]
+            k = tf.where(match==idx)
+            if tf.size(k) == 0:
+                return tf.constant(0., dtype=tf.float32)
+            truth_box = starfish[k[0,0]]
             t_x_star = (truth_box[0] - roi[idx][0]) / roi[idx][0]
             t_y_star = (truth_box[1] - roi[idx][1]) / roi[idx][1]
             t_w_star = geometry.safe_log(truth_box[2] / roi[idx][2])
