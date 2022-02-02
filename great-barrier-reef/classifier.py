@@ -1,7 +1,6 @@
 # Final classification network and training wrapper
 
 import tensorflow as tf
-import tensorflow_addons as tfa
 import numpy as np
 import geometry
 
@@ -70,18 +69,6 @@ class ClassifierModel(tf.keras.Model):
         label_decoder,
         n_proposals,
         dense_layers=512,
-        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[
-                10000,
-            ],
-            values=[1e-3, 1e-4],
-        ),
-        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[
-                10000,
-            ],
-            values=[1e-4, 1e-5],
-        ),
         class_dropout=0.2,
     ):
         """
@@ -110,8 +97,6 @@ class ClassifierModel(tf.keras.Model):
         self.pool = pool
         self.label_decoder = label_decoder
         self.n_proposals = n_proposals
-        self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
         self.dense_layers = dense_layers
 
         # Network and optimizer
@@ -119,12 +104,6 @@ class ClassifierModel(tf.keras.Model):
             n_proposals,
             dropout=class_dropout,
             dense_layers=dense_layers,
-        )
-        self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=self.learning_rate,
-            weight_decay=self.weight_decay,
-            momentum=0.9,
-            clipvalue=1e2,
         )
 
         # Loss calculations

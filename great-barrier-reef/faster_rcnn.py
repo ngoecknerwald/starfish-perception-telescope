@@ -20,6 +20,18 @@ class FasterRCNNWrapper:
         classifier_weights=None,
         classifier_kwargs={},
         finetuning_epochs=5,
+        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-3, 1e-4],
+        ),
+        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-4, 1e-5],
+        ),
     ):
 
         """
@@ -76,8 +88,17 @@ class FasterRCNNWrapper:
         # Instantiate the tail network
         self.instantiate_RoI_pool(roi_kwargs)
 
+        # Optimizer for the full network training
+        self.optimizer = tfa.optimizers.SGDW(
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            momentum=0.9,
+            clipvalue=1e2,
+        )
+
         # This should be instantiated last
         self.instantiate_classifier(classifier_weights, classifier_kwargs)
+
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         """
@@ -199,10 +220,10 @@ class FasterRCNNWrapper:
             del minibatch
 
         else:  # train the RPN with the default settings
-
-            self.rpnwrapper.train_rpn(
-                self.data_loader_full.get_training(),
-            )
+            pass
+            #self.rpnwrapper.train_rpn(
+            #    self.data_loader_full.get_training(),
+            #)
 
     def instantiate_RoI_pool(self, roi_kwargs):
 
