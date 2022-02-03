@@ -121,7 +121,7 @@ class RoIPooling(tf.keras.layers.Layer):
         indices = tf.zeros(self.n_regions, tf.int32)
         # pad with worst RoI in unlikely event NMS can't find enough regions
         if tf.less(tf.size(nms), self.n_regions):
-            last = tf.range(n_roi)[(tf.size(nms) - self.n_regions):]
+            last = tf.range(n_roi)[(tf.size(nms) - self.n_regions) :]
             nms = tf.concat([nms, last], 0)
         indices += nms
 

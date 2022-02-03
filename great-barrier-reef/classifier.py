@@ -50,7 +50,7 @@ class Classifier(tf.keras.layers.Layer):
         self.bbox = tf.keras.layers.Dense(n_proposals * 4)
         if self.dropout is not None:
             self.dropout1 = tf.keras.layers.Dropout(self.dropout)
-            
+
     def call(self, x, training=False):
         x = self.conv1(x)
         x = self.flatten(x)
@@ -138,7 +138,7 @@ class ClassifierModel(tf.keras.Model):
     def _compute_loss(self, data):
         """
         Compute the loss term for the full network.
-        Works on one image at a time. 
+        Works on one image at a time.
 
         Arguments:
 
@@ -147,8 +147,8 @@ class ClassifierModel(tf.keras.Model):
 
         """
 
-        #NO BATCH DIMENSION IN THIS FUNCTION
-        #INTENDED TO BE CALLED WITH MAP_FN
+        # NO BATCH DIMENSION IN THIS FUNCTION
+        # INTENDED TO BE CALLED WITH MAP_FN
 
         cls, bbox, roi, labels = data
 
@@ -157,34 +157,35 @@ class ClassifierModel(tf.keras.Model):
         x, y = self.backbone.feature_coords_to_image_coords(roi[:, 0], roi[:, 1])
         w, h = self.backbone.feature_coords_to_image_coords(roi[:, 2], roi[:, 3])
 
-        roi = tf.stack([x,y,w,h], axis=-1)
+        roi = tf.stack([x, y, w, h], axis=-1)
 
-        starfish = labels[tf.math.count_nonzero(labels, axis = 1) > 0]
+        starfish = labels[tf.math.count_nonzero(labels, axis=1) > 0]
+
         def _calc_IoU(sf):
-            return geometry.calculate_IoU(sf, roi) # returns (nroi,) tensor
+            return geometry.calculate_IoU(sf, roi)  # returns (nroi,) tensor
 
-        IoUs = tf.map_fn(_calc_IoU, starfish) # returns (nstarfish, nroi) tensor
+        IoUs = tf.map_fn(_calc_IoU, starfish)  # returns (nstarfish, nroi) tensor
 
         # for each starfish, grab the highest IoU roi
-        match = tf.math.argmax(IoUs, axis=1) # returns (nstarfish, ) tensor
+        match = tf.math.argmax(IoUs, axis=1)  # returns (nstarfish, ) tensor
 
         # First the regularization term
         loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
         loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
 
         def _bbox_loss(idx):
-            k = tf.where(match==idx)
+            k = tf.where(match == idx)
             if tf.size(k) == 0:
-                return tf.constant(0., dtype=tf.float32)
-            truth_box = starfish[k[0,0]]
+                return tf.constant(0.0, dtype=tf.float32)
+            truth_box = starfish[k[0, 0]]
             t_x_star = (truth_box[0] - roi[idx][0]) / roi[idx][0]
             t_y_star = (truth_box[1] - roi[idx][1]) / roi[idx][1]
             t_w_star = geometry.safe_log(truth_box[2] / roi[idx][2])
             t_h_star = geometry.safe_log(truth_box[3] / roi[idx][3])
             return self.bbox_reg_l1(
-                        [t_x_star, t_y_star, t_w_star, t_h_star],
-                        bbox[idx :: self.n_proposals],
-                    )
+                [t_x_star, t_y_star, t_w_star, t_h_star],
+                bbox[idx :: self.n_proposals],
+            )
 
         for i in tf.range(self.n_proposals, dtype=tf.int64):
             positive = tf.reduce_any(tf.math.equal(i, match))
@@ -194,8 +195,8 @@ class ClassifierModel(tf.keras.Model):
             else:
                 ground_truth = tf.constant([1.0, 0.0])
             cls_select = tf.nn.softmax(cls[i :: self.n_proposals])
-            loss += self.class_loss(cls_select , ground_truth)
-       
+            loss += self.class_loss(cls_select, ground_truth)
+
         return loss
 
     @tf.function
@@ -253,7 +254,7 @@ class ClassifierModel(tf.keras.Model):
             if grad is not None
         )
 
-        return {'loss': loss}
+        return {"loss": loss}
 
     @tf.function
     def call(self, data):
@@ -273,21 +274,19 @@ class ClassifierModel(tf.keras.Model):
         objectness_l1 = cls[:, self.n_proposals :]
 
         # Need to unpack a bit and hit with softmax
-        objectness = tf.nn.softmax(
-            tf.stack([objectness_l0, objectness_l1]), axis=0
-        )
+        objectness = tf.nn.softmax(tf.stack([objectness_l0, objectness_l1]), axis=0)
 
         # Cut to the positive bit
         objectness = objectness[1]
 
         # Convert roi to image coordinates
         roi = tf.cast(roi, tf.float32)
-        x, y = self.backbone.feature_coords_to_image_coords(roi[:,:,0], roi[:,:,1])
-        w, h = self.backbone.feature_coords_to_image_coords(roi[:,:,2], roi[:,:,3])
-        roi = tf.stack([x,y,w,h], axis=-1)
+        x, y = self.backbone.feature_coords_to_image_coords(roi[:, :, 0], roi[:, :, 1])
+        w, h = self.backbone.feature_coords_to_image_coords(roi[:, :, 2], roi[:, :, 3])
+        roi = tf.stack([x, y, w, h], axis=-1)
 
         bbox = tf.reshape(bbox, (-1, 4, self.n_proposals))
-        bbox = tf.transpose(bbox, perm = [0,2,1])
+        bbox = tf.transpose(bbox, perm=[0, 2, 1])
 
         x = roi[:, :, 0] - (bbox[:, :, 0] * roi[:, :, 2])
         x = roi[:, :, 0] - (bbox[:, :, 1] * roi[:, :, 3])
@@ -305,7 +304,7 @@ class ClassifierModel(tf.keras.Model):
 
         """
 
-        x,y,w,h,score = tf.unstack(data, axis=-1)
+        x, y, w, h, score = tf.unstack(data, axis=-1)
         return [
             [
                 {
