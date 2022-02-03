@@ -656,7 +656,7 @@ class RPNWrapper:
 
         # F2 metric for the RPN, have it look at all positive
         # regions so pass N=None
-        self.validation_f2 = evaluation.TopNRegionsF2(None)
+        self.validation_f2 = evaluation.TopNRegionsF2(10, label_decoder)
 
     def train_rpn(self, train_dataset, epochs=6, kwargs={}):
         """
