@@ -112,9 +112,14 @@ class RoIPooling(tf.keras.layers.Layer):
         x, y, w, h = tf.unstack(roi, axis=-1)
         roi_prime = tf.stack([y, x, y + h, x + w], axis=-1)
 
-        indices = tf.image.non_max_suppression(
+        nms = tf.image.non_max_suppression(
             roi_prime, scores, self.n_regions, self.IoU_threshold
         )
+        indices = np.zeros((self.n_regions,), dtype="int32")
+        if tf.less_equal(tf.size(nms), tf.size(indices)):
+            nms = tf.concat([nms, tf.zeros(self.n_regions - tf.size(nms), dtype="int32")], 0)
+        indices += nms
+
         return tf.gather(roi, indices, batch_dims=0)
 
     @tf.function

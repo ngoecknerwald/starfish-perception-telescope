@@ -50,12 +50,11 @@ class Classifier(tf.keras.layers.Layer):
         self.bbox = tf.keras.layers.Dense(n_proposals * 4)
         if self.dropout is not None:
             self.dropout1 = tf.keras.layers.Dropout(self.dropout)
-    @tf.function(
-      input_signature=[tf.TensorSpec(shape=[None, 10, 3, 3, 2048], dtype=tf.float32)])
-    def call(self, x):
+            
+    def call(self, x, training=False):
         x = self.conv1(x)
         x = self.flatten(x)
-        if hasattr(self, "dropout1") and True:
+        if hasattr(self, "dropout1") and training:
             x = self.dropout1(x)
         cls = self.cls(x)
         bbox = self.bbox(x)
