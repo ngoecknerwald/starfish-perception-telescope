@@ -20,26 +20,30 @@ class TopNRegionsF2(tf.keras.metrics.Metric):
 
     """
 
-    def __init__(self, N, **kwargs):
+    def __init__(self, N, label_decoder, **kwargs):
         super().__init__(**kwargs)
         self.N = N
         self.f2s = self.add_weight(name="f2", initializer="zeros")
+        self.label_decoder = label_decoder
 
     def update_state(self, y_true, y_pred):
 
-        print("Python interpreter in TopNRegionsF2.update_state")
-        print("y_true")
-        print(y_true)
-        print("y_pred")
-        print(y_pred)
+        print("Python interpreter in TopNRegionsF2.update_state()")
 
-        self.f2s.assign_add(
-            tf.convert_to_tensor(
-                [
-                    0.0,
-                ]
-            )
+        ignore = tf.convert_to_tensor(
+            [False] * self.N
+            + [
+                True,
+            ]
+            * (y_pred.shape[1] - self.N)
         )
+
+        # Replicate across images
+        ignore = tf.tile(ignore[tf.newaxis, :], (y_pred.shape[0], 1))
+
+        f2s = compute_F2_scores(y_pred, self.label_decoder(y_true), ignore)
+
+        self.f2s.assign_add(tf.reduce_mean(f2s))
 
     def result(self):
         return self.f2s
@@ -55,26 +59,28 @@ class ThresholdF2(tf.keras.metrics.Metric):
 
     """
 
-    def __init__(self, thresh, **kwargs):
+    def __init__(self, thresh, label_decoder, **kwargs):
         super().__init__(**kwargs)
         self.thresh = thresh
         self.f2s = self.add_weight(name="f2", initializer="zeros")
+        self.label_decoder = label_decoder
 
     def update_state(self, y_true, y_pred):
 
-        print("Python interpreter in TopNRegionsF2.update_state")
-        print("y_true")
-        print(y_true)
-        print("y_pred")
-        print(y_pred)
+        print("Python interpreter in ThresholdF2.update_state()")
 
-        self.f2s.assign_add(
-            tf.convert_to_tensor(
-                [
-                    0.0,
-                ]
-            )
+        # Check that classification scores are returned
+        tf.debugging.assert_equal(y_pred.shape[2], 5)
+
+        ignore = tf.where(
+            y_pred[:, :, 4] > self.thresh,
+            1.0,
+            0.0,
         )
+
+        f2s = compute_F2_scores(y_pred[:, :, :4], self.label_decoder(y_true), ignore)
+
+        self.f2s.assign_add(tf.reduce_mean(f2s))
 
     def result(self):
         return self.f2s

@@ -99,7 +99,6 @@ class FasterRCNNWrapper:
         # This should be instantiated last
         self.instantiate_classifier(classifier_weights, classifier_kwargs)
 
-
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         """
         Create the data loader classes.
@@ -220,10 +219,10 @@ class FasterRCNNWrapper:
             del minibatch
 
         else:  # train the RPN with the default settings
-            pass
-            #self.rpnwrapper.train_rpn(
-            #    self.data_loader_full.get_training(),
-            #)
+
+            self.rpnwrapper.train_rpn(
+                self.data_loader_full.get_training(),
+            )
 
     def instantiate_RoI_pool(self, roi_kwargs):
 
@@ -267,11 +266,11 @@ class FasterRCNNWrapper:
         # Note that this is associated with self.backbone whereas
         # the rpn is associated with self.backbone_rpn
         self.classmodel = classifier.ClassifierModel(
-            self.backbone, 
+            self.backbone,
             self.rpnwrapper,
-            self.RoI_pool, 
+            self.RoI_pool,
             self.data_loader_full.decode_label,
-            self.n_proposals, 
+            self.n_proposals,
             **classifier_kwargs
         )
 
@@ -304,7 +303,7 @@ class FasterRCNNWrapper:
         )
         self.classmodel.fit(training, epochs=epochs, **kwargs)
 
-#TODO: make this function compatible with the new classifier architecture
+    # TODO: make this function compatible with the new classifier architecture
     def predict(self, image, return_dict=False):
 
         """
@@ -316,7 +315,7 @@ class FasterRCNNWrapper:
             Minibatch of image(s) to register a prediction for.
         """
         print("Function not currently compatible with classifier architecture")
-        assert(False)
+        assert False
 
         # Usual invocation, taking advantage of the shared backbone
         features = self.backbone.extractor(image)

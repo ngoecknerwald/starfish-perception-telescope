@@ -91,6 +91,6 @@ def batch_sort(arr, inds, n):
     """
 
     print("Python interpreter in geometry.batch_sort()")
-    assert(len(tf.shape(arr))==2)
-    
+    assert len(tf.shape(arr)) == 2
+
     return tf.gather(arr, inds, batch_dims=1)[:, :n]
