@@ -313,7 +313,7 @@ class ClassifierModel(tf.keras.Model):
                     "y": y[i_image, i_roi].numpy(),
                     "width": w[i_image, i_roi].numpy(),
                     "height": h[i_image, i_roi].numpy(),
-                    "score": objectness[i_image, i_roi].numpy(),
+                    "score": score[i_image, i_roi].numpy(),
                 }
                 for i_roi in range(self.n_proposals)
             ]
