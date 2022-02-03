@@ -20,6 +20,18 @@ class FasterRCNNWrapper:
         classifier_weights=None,
         classifier_kwargs={},
         finetuning_epochs=5,
+        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-3, 1e-4],
+        ),
+        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[
+                10000,
+            ],
+            values=[1e-4, 1e-5],
+        ),
     ):
 
         """
@@ -75,6 +87,14 @@ class FasterRCNNWrapper:
 
         # Instantiate the tail network
         self.instantiate_RoI_pool(roi_kwargs)
+
+        # Optimizer for the full network training
+        self.optimizer = tfa.optimizers.SGDW(
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            momentum=0.9,
+            clipvalue=1e2,
+        )
 
         # This should be instantiated last
         self.instantiate_classifier(classifier_weights, classifier_kwargs)
@@ -185,17 +205,23 @@ class FasterRCNNWrapper:
         """
 
         # Create the RPN wrapper
-        self.rpnwrapper = rpn.RPNWrapper(self.backbone, **rpn_kwargs)
+        self.rpnwrapper = rpn.RPNWrapper(
+            self.backbone, self.data_loader_full.decode_label, **rpn_kwargs
+        )
 
         if rpn_weights is not None:  # Load the weights from a file
 
             assert os.path.exists(rpn_weights)
+            # Run dummy data through to build the network, then load weights
+            minibatch = self.data_loader_full.get_training().__iter__().next()
+            self.rpnwrapper.propose_regions(minibatch[0], is_images=True)
             self.rpnwrapper.load_rpn_state(rpn_weights)
+            del minibatch
 
         else:  # train the RPN with the default settings
 
             self.rpnwrapper.train_rpn(
-                self.data_loader_full.get_training(), self.data_loader_full.decode_label
+                self.data_loader_full.get_training(),
             )
 
     def instantiate_RoI_pool(self, roi_kwargs):
@@ -211,7 +237,13 @@ class FasterRCNNWrapper:
         """
 
         self.RoI_pool = roi_pooling.RoIPooling(
-            self.backbone.output_shape, self.n_proposals, **roi_kwargs
+            (
+                int(self.backbone._output_shape[0]),
+                int(self.backbone._output_shape[1]),
+                int(self.backbone._output_shape[2]),
+            ),
+            self.n_proposals,
+            **roi_kwargs
         )
 
     def instantiate_classifier(self, classifier_weights, classifier_kwargs):
@@ -233,64 +265,45 @@ class FasterRCNNWrapper:
 
         # Note that this is associated with self.backbone whereas
         # the rpn is associated with self.backbone_rpn
-        self.classwrapper = classifier.ClassifierWrapper(
-            self.backbone, self.n_proposals, **classifier_kwargs
+        self.classmodel = classifier.ClassifierModel(
+            self.backbone,
+            self.rpnwrapper,
+            self.RoI_pool,
+            self.data_loader_full.decode_label,
+            self.n_proposals,
+            **classifier_kwargs
         )
 
         if classifier_weights is not None:
 
             assert os.path.exists(classifier_weights)
-            self.classwrapper.load_classifier_state(classifier_weights)
+            self.classmodel.load_classifier_state(classifier_weights)
 
         else:  # Do the first order training of the classification weights
 
             self.train_classifier(epochs)
 
-    def train_classifier(self, epochs):
+    def train_classifier(self, epochs, kwargs={}):
         """
-        Train the classifier holding the backbone weights fixed. Written
-        as a method in FasterRCNNWrapper because the training step needs
-        access to the backbone, RPN, and RoI pooling layers.
+        Main training loop iterating over a dataset.
 
         Arguments:
 
+        train_dataset: tensorflow dataset
+            Dataset of input images. Minibatch size and validation
+            split are determined when this is created.
         epochs : int
             Number of epochs to run training for.
 
-        This method does not fine tune the backbone weights.
-
         """
-
         training = self.data_loader_full.get_training()
 
-        # This does a forward pass through the RPN
-        # and hands the proposed regions + features to the classifier
-        for epoch in range(epochs):
+        self.classmodel.compile(
+            optimizer=self.optimizer,
+        )
+        self.classmodel.fit(training, epochs=epochs, **kwargs)
 
-            print("Classifier training epoch %d" % epoch, end="")
-
-            for i, (train_x, label_x) in enumerate(training):
-
-                if i % 100 == 0:
-                    print(".", end="")
-
-                # Propose regions and compute features with the
-                # backbone associated with the classifier
-                features = self.backbone.extractor(train_x)
-                roi = self.rpnwrapper.propose_regions(features, input_is_images=False)
-
-                # Clip the RoI and pool the features
-                features, roi = self.RoI_pool(features, roi)
-
-                # Take a gradient step
-                self.classwrapper.training_step(
-                    features,
-                    roi.astype(float),
-                    [self.data_loader_full.decode_label(_label) for _label in label_x],
-                )
-
-            print("")
-
+    # TODO: make this function compatible with the new classifier architecture
     def predict(self, image, return_dict=False):
 
         """
@@ -301,16 +314,18 @@ class FasterRCNNWrapper:
         Image : tf.tensor
             Minibatch of image(s) to register a prediction for.
         """
+        print("Function not currently compatible with classifier architecture")
+        assert False
 
         # Usual invocation, taking advantage of the shared backbone
         features = self.backbone.extractor(image)
-        roi = self.rpnwrapper.propose_regions(features, input_is_images=False)
+        roi = self.rpnwrapper.propose_regions(features)
         features, roi = self.RoI_pool(features, roi)
 
         # Run the classifier in forward mode
-        minibatch_regions = self.classwrapper.predict_classes(
+        minibatch_regions = self.classmodel(
             features,
-            roi.astype(float),
+            roi.astype("float32"),
         )
 
         # output munging
@@ -376,7 +391,7 @@ class FasterRCNNWrapper:
 
         #        # TODO we need to move the backbone call into the training step method for this to work
         #        # TODO we also need to define "fine tuning" learning rates
-        #        self.classwrapper.training_step(
+        #        self.classmodel.train_step(
         #            features,
         #            roi,
         #            [self.data_loader_full.decode_label(_label) for _label in label_x],

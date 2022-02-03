@@ -2,6 +2,7 @@
 # Two variants are provided, one returning thumbnails for
 # fine tuning the backbone and one returning full size images
 
+import tensorflow as tf
 from tensorflow.keras.utils import image_dataset_from_directory
 import pandas as pd
 import os
@@ -34,11 +35,40 @@ class DataLoader:
         self.batch_size = None
         self.validation_split = None
         self.seed = 150601497
+
         self.labels = pd.read_csv(os.path.join(self.input_file, "train.csv"))
 
+        # Make the labels a tensor to be used in compiled models
+        # Indices are image #, annotation #, xywh
+        # Note that ragged tensors blow things up in the computation
+        # graph later, for unclear reasons
+        self.label_tensor = tf.constant(
+            [
+                self.label_to_tensor(annotation)
+                for annotation in self.labels["annotations"]
+            ],
+            dtype="float32",
+        )
 
-# This class will be a wrapper for getting the full-sized images into the ML models
-# Intended to make things as atomic as possible for the high-level code
+    @staticmethod
+    def label_to_tensor(label, max_annotations=32):
+        """
+        Convert the annotation string format to a nested list
+        to be used in the annotation constant tensor.
+
+        """
+        annotations = [
+            [a["x"], a["y"], a["width"], a["height"]]
+            for a in json.loads(label.replace("'", '"'))
+        ]
+
+        return (
+            annotations
+            + [
+                [0, 0, 0, 0],
+            ]
+            * (max_annotations - len(annotations))
+        )
 
 
 class DataLoaderFull(DataLoader):
@@ -127,28 +157,25 @@ class DataLoaderFull(DataLoader):
 
         return self.validation
 
+    @tf.function
     def decode_label(self, label):
         """
         Decode the label defined in the dataset creation into a list
         of bounding boxes.
 
-        Assumes that the order of rows in the .npy file matches os.walk(),
-        which empirically seems to be the case.
-
         Arguments:
 
-        label: int
-            Image number from the (sorted) dataset. This is decoded to a set of bounding boxes.
+        label: tf.tensor(int32)
+          Index tensor of size (batch, ) from the (sorted) dataset. This is decoded to a set of bounding boxes.
 
         """
 
-        st = self.labels["annotations"][label.numpy()].replace("'", '"')
-        return json.loads(st)
+        print("Python interpreter in DataLoader.decode_label()")
+
+        return tf.gather(self.label_tensor, label)
 
 
 # This class returns a set of thumbnails that either do or do not have starfish.
-
-
 class DataLoaderThumbnail(DataLoader):
     def __init__(self, **kwargs):
         """
@@ -159,7 +186,7 @@ class DataLoaderThumbnail(DataLoader):
         super().__init__(**kwargs)
 
     def _load_dataset(
-        self, batch_size=64, validation_split=0.2, shuffle=True, image_size=(128, 128)
+        self, batch_size=64, validation_split=0.2, shuffle=True, image_size=(96, 96)
     ):
         """
         Internal method to create and load the thumbnail dataset from the input files.
@@ -214,22 +241,13 @@ class DataLoaderThumbnail(DataLoader):
                     len(annotation) > 0
                 ):  # If there are starfish, then pick one at random
                     choice = np.random.randint(len(annotation))
-                    xmin = np.maximum(
-                        0,
-                        int(
-                            annotation[choice]["x"]
-                            + annotation[choice]["width"] / 2
-                            - image_size[1] / 2
-                        ),
+                    xmin = annotation[choice]["x"]
+                    ymin = annotation[choice]["y"]
+                    local_size = (
+                        annotation[choice]["width"],
+                        annotation[choice]["height"],
                     )
-                    ymin = np.maximum(
-                        0,
-                        int(
-                            annotation[choice]["y"]
-                            + annotation[choice]["height"] / 2
-                            - image_size[0] / 2
-                        ),
-                    )
+
                     outdir = os.path.join(
                         self.input_file, "train_images_thumb", "starfish"
                     )
@@ -239,11 +257,12 @@ class DataLoaderThumbnail(DataLoader):
                     outdir = os.path.join(
                         self.input_file, "train_images_thumb", "background"
                     )
+                    local_size = image_size
 
                 # Crop and save the results
                 slice_image = Image.fromarray(
                     local_image[
-                        ymin : ymin + image_size[0], xmin : xmin + image_size[1], :
+                        ymin : ymin + local_size[1], xmin : xmin + local_size[0], :
                     ]
                 )
                 slice_image.save(os.path.join(outdir, "%d.jpg" % index))
@@ -260,6 +279,7 @@ class DataLoaderThumbnail(DataLoader):
             shuffle=shuffle,
             subset="training",
             image_size=image_size,
+            crop_to_aspect_ratio=True,
         )
 
         self.validation = image_dataset_from_directory(
@@ -273,6 +293,7 @@ class DataLoaderThumbnail(DataLoader):
             shuffle=shuffle,
             subset="validation",
             image_size=image_size,
+            crop_to_aspect_ratio=True,
         )
 
     def get_training(self, **kwargs):

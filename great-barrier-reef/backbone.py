@@ -31,15 +31,71 @@ def instantiate(backbone_type, init_args):
         raise ValueError("Argument backbone=%s is not recognized." % backbone_type)
 
 
-class Backbone:
+class Backbone(tf.keras.layers.Layer):
     def __init__(self):
         """
         Superclass for different backbone models.
         """
-        self.extractor = None
-        self.input_shape = None
-        self.output_shape = None
+        super().__init__()
 
+        self.extractor = None
+        self._input_shape = None
+        self._output_shape = None
+
+    @tf.function
+    def feature_coords_to_image_coords(self, xx, yy):
+        """
+        Naively maps coordinates x,y in extracted feature space to
+        coordinates in map space.
+
+        Arguments:
+
+        xx : tf.tensor
+            Pixel coordinate in the feature map.
+        yy : tf.tensor
+            Pixel corrdinate in the feature map.
+        """
+
+        print("Python interpreter in backbone.feature_coords_to_image_coords()")
+
+        return (
+            xx * self._input_shape[1] / self._output_shape[1],
+            yy * self._input_shape[0] / self._output_shape[0],
+        )
+
+    @tf.function
+    def image_coords_to_feature_coords(self, x, y):
+        """
+        Naively map coordinates in image space to feature space.
+
+        Arguments:
+
+        x : tf.tensor
+            Pixel coordinate in the image map.
+        y : tf.tensor
+            Pixel corrdinate in the image map.
+        """
+
+        print("Python interpreter in backbone.image_coords_to_feature_coords()")
+
+        return (
+            x * self._output_shape[1] / self._input_shape[1],
+            y * self._output_shape[0] / self._input_shape[0],
+        )
+
+    def call(self, x):
+        """
+        Run the feature extractor on an image minibatch
+
+        Arguments:
+
+        x : tf.tensor
+            Input image minibatch
+
+        """
+        return self.extractor(x)
+
+    # Other python-land functions
     def save_backbone(self, path):
         """
         Save the trained convolutional layers of the backbone to a file path.
@@ -63,41 +119,6 @@ class Backbone:
         local_network = tf.keras.models.load_model(path)
         self.network.set_weights(local_network.get_weights())
         del local_network
-
-    def feature_coords_to_image_coords(self, xx, yy):
-        """
-        Naively maps coordinates x,y in extracted feature space to
-        coordinates in map space.
-
-        Arguments:
-
-        xx : int or numpy array
-            Pixel coordinate in the feature map.
-        yy : int or numpy array
-            Pixel corrdinate in the feature map.
-        """
-
-        return (
-            xx * float(self.input_shape[1] / self.output_shape[1]),
-            yy * float(self.input_shape[0] / self.output_shape[0]),
-        )
-
-    def image_coords_to_feature_coords(self, x, y):
-        """
-        Naively map coordinates in image space to feature space.
-
-        Arguments:
-
-        x : int or numpy array
-            Pixel coordinate in the image map.
-        y : int or numpy array
-            Pixel corrdinate in the image map.
-        """
-
-        return (
-            x * float(self.output_shape[1] / self.input_shape[1]),
-            y * float(self.output_shape[0] / self.input_shape[0]),
-        )
 
     def pretrain(
         self,
@@ -146,12 +167,17 @@ class Backbone:
         self.extractor.trainable = False
 
         # It's a plain stack of layers, so let's just use Sequential for readability
-        # TODO do we want to put the dropout before or after the GAP2D? We originally
-        # had dropout before the GAP but it makes more sense after in my head. Will revisit later.
+        # Note that we've added a bunch of data augmentation to the stack here to prevent
+        # overfitting. Those parameters are chosen quasi-randomly based on the distribution
+        # of starfish that we'd expect to see in the validation/test set.
         model = tf.keras.Sequential(
             [
+                tf.keras.layers.RandomZoom((-0.5, 0.5)),
+                tf.keras.layers.RandomFlip("horizontal"),
+                tf.keras.layers.RandomRotation(0.25),
+                tf.keras.layers.RandomContrast(0.25),
                 self.extractor,
-                tf.keras.layers.Dropout(0.2),
+                tf.keras.layers.Dropout(0.5),
                 tf.keras.layers.GlobalAveragePooling2D(),
                 tf.keras.layers.Dense(1),
             ]
@@ -240,8 +266,11 @@ class Backbone_InceptionResNetV2(Backbone):
         )
 
         # The things connected to this model will need to know output geometry
-        self.input_shape = input_shape
-        self.output_shape = self.network.output_shape[1:]
+        if input_shape is not None:
+            self._input_shape = tf.constant(input_shape, dtype="float32")
+            self._output_shape = tf.constant(
+                self.network.output_shape[1:], dtype="float32"
+            )
 
         # Fold the image preprocessing into the model
         self.extractor = tf.keras.Sequential(
@@ -278,8 +307,11 @@ class Backbone_VGG16(Backbone):
             pooling=None,
         )
 
-        self.input_shape = input_shape
-        self.output_shape = self.network.output_shape[1:]
+        if input_shape is not None:
+            self._input_shape = tf.constant(input_shape, dtype="float32")
+            self._output_shape = tf.constant(
+                self.network.output_shape[1:], dtype="float32"
+            )
 
         # Fold the image preprocessing into the model
         # The different pretrained models expect different inputs, so propagate that into here
@@ -315,8 +347,11 @@ class Backbone_ResNet50(Backbone):
             pooling=None,
         )
 
-        self.input_shape = input_shape
-        self.output_shape = self.network.output_shape[1:]
+        if input_shape is not None:
+            self._input_shape = tf.constant(input_shape, dtype="float32")
+            self._output_shape = tf.constant(
+                self.network.output_shape[1:], dtype="float32"
+            )
 
         # Fold the image preprocessing into the model
         # The different pretrained models expect different inputs, so propagate that into here

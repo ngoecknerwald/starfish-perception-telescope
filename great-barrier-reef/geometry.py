@@ -1,10 +1,10 @@
 # Methods for general geometry methods (i.e. IoU calculations)
 # that don't belong in any specific class
 
-import numpy as np
 import tensorflow as tf
 
 
+@tf.function
 def calculate_IoU(a, b):
     """
     Calculate the intersection over union for two boxes
@@ -12,9 +12,9 @@ def calculate_IoU(a, b):
 
     Arguments:
 
-    a : length-4 array-like, or numpy array of dimension (4,N,M,...)
+    a : length-4 array-like, or tf.tensor of dimension (4,N,M,...)
         given as (xa, ya, wa, ha)
-    b : length-4 array-like, or numpy array of dimension (4,N,M,...)
+    b : length-4 array-like, or tf.tensor of dimension (4,N,M,...)
         given as (xb, yb, wb, hb)
 
     Returns:
@@ -23,18 +23,21 @@ def calculate_IoU(a, b):
 
     """
 
-    intersect = np.maximum(
-        0,
-        np.minimum(a[0] + a[2], b[0] + b[2]) - np.maximum(a[0], b[0]),
-    ) * np.maximum(
-        0,
-        np.minimum(a[1] + a[3], b[1] + b[3]) - np.maximum(a[1], b[1]),
+    print("Python interpreter in geometry.calculate_Iou()")
+
+    intersect = tf.math.maximum(
+        0.0,
+        tf.math.minimum(a[0] + a[2], b[0] + b[2]) - tf.math.maximum(a[0], b[0]),
+    ) * tf.math.maximum(
+        0.0,
+        tf.math.minimum(a[1] + a[3], b[1] + b[3]) - tf.math.maximum(a[1], b[1]),
     )
     overlap = (a[2] * a[3]) + (b[2] * b[3]) - intersect
 
     return intersect / overlap
 
 
+@tf.function
 def safe_exp(x):
 
     """
@@ -47,14 +50,17 @@ def safe_exp(x):
 
     Arguments:
 
-    x : np.ndarray, float or tf.tensor
+    x : tf.tensor
         Input variables.
 
     """
 
+    print("Python interpreter in geometry.safe_exp()")
+
     return tf.nn.elu(x) + 1.0
 
 
+@tf.function
 def safe_log(x):
 
     """
@@ -62,8 +68,29 @@ def safe_log(x):
 
     log(x) : x < 1
     x - 1. x >= 1
+
+    Arguments:
+    x : tf.tensor of shape 0
+        Input variable
+
     """
 
+    print("Python interpreter in geometry.safe_log()")
+
     if x < 1.0:
-        return np.log(x)
+        return tf.math.log(x)
     return x - 1.0
+
+
+@tf.function
+def batch_sort(arr, inds, n):
+    """
+    Sort a flattened tensor arr by indices inds returning the first n.
+
+    Note that this rebuilds a computation graph when n changes.
+    """
+
+    print("Python interpreter in geometry.batch_sort()")
+    assert len(tf.shape(arr)) == 2
+
+    return tf.gather(arr, inds, batch_dims=1)[:, :n]
