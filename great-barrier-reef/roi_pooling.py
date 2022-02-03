@@ -105,8 +105,9 @@ class RoIPooling(tf.keras.layers.Layer):
 
         """
         # Artificial scores (descending)
-        n_roi = tf.cast(tf.shape(roi)[0], tf.float32)
-        scores = tf.reverse(tf.range(n_roi) / n_roi, [0])
+        n_roi = tf.shape(roi)[0]
+        n_roif = tf.cast(n_roi, "float32")
+        scores = tf.reverse(tf.range(n_roif) / n_roif, [0])
 
         # TF NMS takes arguments (y1,x1,y2,x2)
         x, y, w, h = tf.unstack(roi, axis=-1)
@@ -115,9 +116,13 @@ class RoIPooling(tf.keras.layers.Layer):
         nms = tf.image.non_max_suppression(
             roi_prime, scores, self.n_regions, self.IoU_threshold
         )
-        indices = np.zeros((self.n_regions,), dtype="int32")
-        if tf.less_equal(tf.size(nms), tf.size(indices)):
-            nms = tf.concat([nms, tf.zeros(self.n_regions - tf.size(nms), dtype="int32")], 0)
+
+        # add nms to fixed length tensor to allow graph build
+        indices = tf.zeros(self.n_regions, tf.int32)
+        # pad with worst RoI in unlikely event NMS can't find enough regions
+        if tf.less(tf.size(nms), self.n_regions):
+            last = tf.range(n_roi)[(tf.size(nms) - self.n_regions):]
+            nms = tf.concat([nms, last], 0)
         indices += nms
 
         return tf.gather(roi, indices, batch_dims=0)
