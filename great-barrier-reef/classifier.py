@@ -178,8 +178,8 @@ class ClassifierModel(tf.keras.Model):
             if tf.size(k) == 0:
                 return tf.constant(0.0, dtype=tf.float32)
             truth_box = starfish[k[0, 0]]
-            t_x_star = (truth_box[0] - roi[0][idx]) / roi[0][idx]
-            t_y_star = (truth_box[1] - roi[1][idx]) / roi[1][idx]
+            t_x_star = (truth_box[0] - roi[0][idx]) / roi[2][idx]
+            t_y_star = (truth_box[1] - roi[1][idx]) / roi[3][idx]
             t_w_star = geometry.safe_log(truth_box[2] / roi[2][idx])
             t_h_star = geometry.safe_log(truth_box[3] / roi[3][idx])
             return self.bbox_reg_l1(
