@@ -157,7 +157,7 @@ class ClassifierModel(tf.keras.Model):
         x, y = self.backbone.feature_coords_to_image_coords(roi[:, 0], roi[:, 1])
         w, h = self.backbone.feature_coords_to_image_coords(roi[:, 2], roi[:, 3])
 
-        roi = tf.stack([x, y, w, h], axis=-1)
+        roi = tf.stack([x, y, w, h], axis=0)
 
         starfish = labels[tf.math.count_nonzero(labels, axis=1) > 0]
 
@@ -178,10 +178,10 @@ class ClassifierModel(tf.keras.Model):
             if tf.size(k) == 0:
                 return tf.constant(0.0, dtype=tf.float32)
             truth_box = starfish[k[0, 0]]
-            t_x_star = (truth_box[0] - roi[idx][0]) / roi[idx][0]
-            t_y_star = (truth_box[1] - roi[idx][1]) / roi[idx][1]
-            t_w_star = geometry.safe_log(truth_box[2] / roi[idx][2])
-            t_h_star = geometry.safe_log(truth_box[3] / roi[idx][3])
+            t_x_star = (truth_box[0] - roi[0][idx]) / roi[0][idx]
+            t_y_star = (truth_box[1] - roi[1][idx]) / roi[1][idx]
+            t_w_star = geometry.safe_log(truth_box[2] / roi[2][idx])
+            t_h_star = geometry.safe_log(truth_box[3] / roi[3][idx])
             return self.bbox_reg_l1(
                 [t_x_star, t_y_star, t_w_star, t_h_star],
                 bbox[idx :: self.n_proposals],
