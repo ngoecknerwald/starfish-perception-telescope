@@ -35,10 +35,13 @@ class TopNRegionsF2(tf.keras.metrics.Metric):
             + [
                 tf.constant(True),
             ]
-            * (y_pred.shape[1] - self.N), dtype=tf.bool
+            * (y_pred.shape[1] - self.N),
+            dtype=tf.bool,
         )
 
-        f2s = compute_F2_scores(y_pred, self.label_decoder(y_true), ignore, unique_ignore=False)
+        f2s = compute_F2_scores(
+            y_pred, self.label_decoder(y_true), ignore, unique_ignore=False
+        )
 
         self.f2s.assign_add(tf.reduce_mean(f2s))
 
@@ -75,7 +78,9 @@ class ThresholdF2(tf.keras.metrics.Metric):
             0.0,
         )
 
-        f2s = compute_F2_scores(y_pred[:, :, :4], self.label_decoder(y_true), ignore, unique_ignore=True)
+        f2s = compute_F2_scores(
+            y_pred[:, :, :4], self.label_decoder(y_true), ignore, unique_ignore=True
+        )
 
         self.f2s.assign_add(tf.reduce_mean(f2s))
 
@@ -85,11 +90,7 @@ class ThresholdF2(tf.keras.metrics.Metric):
 
 @tf.function
 def compute_F2_scores(
-    proposals,
-    labels,
-    ignore,
-    IoU_thresholds=[0.3, 0.5, 0.8],
-    unique_ignore=True
+    proposals, labels, ignore, IoU_thresholds=[0.3, 0.5, 0.8], unique_ignore=True
 ):
 
     """
@@ -117,23 +118,28 @@ def compute_F2_scores(
 
     if unique_ignore:
 
-      # Make an analogue to functools.partial()
-      def _compute_F2_unique(data):
-        return compute_FBeta_score(*data, thresholds=IoU_thresholds, beta=2.0)
+        # Make an analogue to functools.partial()
+        def _compute_F2_unique(data):
+            return compute_FBeta_score(*data, thresholds=IoU_thresholds, beta=2.0)
 
-      return tf.map_fn(
-        _compute_F2_unique, (proposals, labels, ignore), fn_output_signature=tf.float32
-      )
+        return tf.map_fn(
+            _compute_F2_unique,
+            (proposals, labels, ignore),
+            fn_output_signature=tf.float32,
+        )
 
     else:
 
-      # Make an analogue to functools.partial()
-      def _compute_F2(data):
-        return compute_FBeta_score(*data, ignore, thresholds=IoU_thresholds, beta=2.0)
+        # Make an analogue to functools.partial()
+        def _compute_F2(data):
+            return compute_FBeta_score(
+                *data, ignore, thresholds=IoU_thresholds, beta=2.0
+            )
 
-      return tf.map_fn(
-        _compute_F2, (proposals, labels), fn_output_signature=tf.float32
-      )
+        return tf.map_fn(
+            _compute_F2, (proposals, labels), fn_output_signature=tf.float32
+        )
+
 
 def compute_FBeta_score(proposal, label, ignore, thresholds, beta):
 

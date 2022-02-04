@@ -206,9 +206,7 @@ class RPNModel(tf.keras.Model):
         )
 
         self.compiled_metrics.update_state(data[1], self.call(features))
-        return {"loss": loss, 
-            **{m.name: m.result() for m in self.metrics}
-        }
+        return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
 
     @tf.function
     def call(
