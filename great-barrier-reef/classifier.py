@@ -169,6 +169,13 @@ class ClassifierModel(tf.keras.Model):
         # for each starfish, grab the highest IoU roi
         match = tf.math.argmax(IoUs, axis=1)  # returns (nstarfish, ) tensor
 
+        # check if the match is a real max or the first of all zeros
+        check_match = (tf.math.count_nonzero(IoUs, axis=1) > 0)
+
+        # set index to -1 for false matches. This won't equal any index in range(proposals), 
+        # so -1 means "not in range" here rather than "last index"
+        match = tf.where(check_match, match, -1)
+
         # First the regularization term
         loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
         loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
