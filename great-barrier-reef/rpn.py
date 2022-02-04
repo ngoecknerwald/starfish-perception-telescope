@@ -205,7 +205,10 @@ class RPNModel(tf.keras.Model):
             if grad is not None
         )
 
-        return {"loss": loss}
+        self.compiled_metrics.update_state(self.call(features), data[1])
+        return {"loss": loss_tracker.result()} + {
+            m.name: m.result() for m in self.metrics
+        }
 
     @tf.function
     def call(
