@@ -222,6 +222,7 @@ class FasterRCNNWrapper:
 
             self.rpnwrapper.train_rpn(
                 self.data_loader_full.get_training(),
+                valid_dataset=self.data_loader_full.get_validation(),
             )
 
     def instantiate_RoI_pool(self, roi_kwargs):

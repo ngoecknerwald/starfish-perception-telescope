@@ -658,7 +658,7 @@ class RPNWrapper:
         # regions so pass N=None
         self.validation_f2 = evaluation.TopNRegionsF2(10, label_decoder)
 
-    def train_rpn(self, train_dataset, epochs=6, kwargs={}):
+    def train_rpn(self, train_dataset, valid_dataset=None, epochs=6, kwargs={}):
         """
         Main training loop iterating over a dataset.
 
@@ -678,7 +678,9 @@ class RPNWrapper:
                 self.validation_f2,
             ],
         )
-        self.rpnmodel.fit(train_dataset, epochs=epochs, **kwargs)
+        self.rpnmodel.fit(
+            train_dataset, epochs=epochs, validation_data=valid_dataset, **kwargs
+        )
 
     def save_rpn_state(self, filename):
         """
