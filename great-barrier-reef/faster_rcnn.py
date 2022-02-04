@@ -214,7 +214,7 @@ class FasterRCNNWrapper:
             assert os.path.exists(rpn_weights)
             # Run dummy data through to build the network, then load weights
             minibatch = self.data_loader_full.get_training().__iter__().next()
-            self.rpnwrapper.propose_regions(minibatch[0], is_images=True)
+            self.rpnwrapper.propose_regions(minibatch[0], input_images=True)
             self.rpnwrapper.load_rpn_state(rpn_weights)
             del minibatch
 
@@ -320,7 +320,9 @@ class FasterRCNNWrapper:
 
         # Usual invocation, taking advantage of the shared backbone
         features = self.backbone.extractor(image)
-        roi = self.rpnwrapper.propose_regions(features, is_images=False)
+        roi = self.rpnwrapper.propose_regions(
+            features, input_images=False, output_images=False
+        )
         features, roi = self.RoI_pool(features, roi)
 
         # Run the classifier in forward mode

@@ -206,7 +206,7 @@ class RPNModel(tf.keras.Model):
         )
 
         self.compiled_metrics.update_state(
-            data[1], self.call(features, is_images=False)
+            data[1], self.call(features, input_images=False, output_images=True)
         )
         return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
 
@@ -214,7 +214,8 @@ class RPNModel(tf.keras.Model):
     def call(
         self,
         data,
-        is_images=True,
+        input_images=True,
+        output_images=True,
     ):
         """
         Run the RPN in forward mode on a minibatch of images.
@@ -225,13 +226,16 @@ class RPNModel(tf.keras.Model):
 
         data : tf.tensor dataset minibatch
             Set of image(s) or feature(s) to run through the network.
-        is_images : bool
-            Set to true to run the input through the backbone and return
-            regions in image coordinates, otherwise work entirely in feature space.
+        input_images : bool
+            Set to true to run the input through the backbone.
+            Default value required to make the validation set F2 score work.
+        output_images : bool
+            Return regions in image coordinates, otherwise work entirely in feature space.
+            Default value required to make the validation set F2 score work.
 
         Returns:
 
-        if not is_images:
+        if not output_images:
             Tensor of shape (batch_size, top, 4) with feature space
             coordinates (xx,yy,ww,hh)
         else:
@@ -242,7 +246,7 @@ class RPNModel(tf.keras.Model):
         print("Python interpreter in RPNModel.call()")
 
         # Run through the extractor if images
-        if is_images:
+        if input_images:
             features = self.backbone(data)
         else:
             features = data
@@ -299,7 +303,7 @@ class RPNModel(tf.keras.Model):
         hh = geometry.batch_sort(flatten(hh), argsort, self.n_roi_output)
 
         # Return in feature space
-        if not is_images:
+        if not output_images:
             output = tf.stack([xx, yy, ww, hh], axis=-1)
         else:
             # Convert to image plane

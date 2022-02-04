@@ -231,7 +231,12 @@ class ClassifierModel(tf.keras.Model):
 
         # Loop over images accumulating RoI proposals
         features, roi = self.pool(
-            (features, self.rpn.propose_regions(features, is_images=False))
+            (
+                features,
+                self.rpn.propose_regions(
+                    features, input_images=False, output_images=False
+                ),
+            )
         )
 
         # Classification layer forward pass
