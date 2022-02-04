@@ -205,14 +205,16 @@ class RPNModel(tf.keras.Model):
             if grad is not None
         )
 
-        self.compiled_metrics.update_state(data[1], self.call(features))
+        self.compiled_metrics.update_state(
+            data[1], self.call(features, is_images=False)
+        )
         return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
 
     @tf.function
     def call(
         self,
         data,
-        is_images=False,
+        is_images=True,
     ):
         """
         Run the RPN in forward mode on a minibatch of images.
@@ -590,6 +592,7 @@ class RPNWrapper:
         ),
         momentum=0.9,
         clipvalue=1e2,
+        top_n_f2=10,
     ):
         """
         Wrapper class for the RPN model
@@ -625,6 +628,8 @@ class RPNWrapper:
             Momentum parameter for the SGDW optimizer.
         clipvalue : float
             Maximum allowable gradient for the SGDW optimizer.
+        top_n_f2 : int
+            Number of regions to consider when computing the F2 score for the training / validation set.
         """
 
         # RPN model itself
@@ -657,7 +662,7 @@ class RPNWrapper:
 
         # F2 metric for the RPN, have it look at all positive
         # regions so pass N=None
-        self.validation_f2 = evaluation.TopNRegionsF2(10, label_decoder)
+        self.validation_f2 = evaluation.TopNRegionsF2(top_n_f2, label_decoder)
 
     def train_rpn(self, train_dataset, valid_dataset=None, epochs=6, kwargs={}):
         """

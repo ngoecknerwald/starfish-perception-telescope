@@ -230,7 +230,9 @@ class ClassifierModel(tf.keras.Model):
         labels = self.label_decoder(data[1])
 
         # Loop over images accumulating RoI proposals
-        features, roi = self.pool((features, self.rpn.propose_regions(features)))
+        features, roi = self.pool(
+            (features, self.rpn.propose_regions(features, is_images=False))
+        )
 
         # Classification layer forward pass
         with tf.GradientTape() as tape:

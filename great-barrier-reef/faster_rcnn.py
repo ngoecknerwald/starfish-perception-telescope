@@ -320,7 +320,7 @@ class FasterRCNNWrapper:
 
         # Usual invocation, taking advantage of the shared backbone
         features = self.backbone.extractor(image)
-        roi = self.rpnwrapper.propose_regions(features)
+        roi = self.rpnwrapper.propose_regions(features, is_images=False)
         features, roi = self.RoI_pool(features, roi)
 
         # Run the classifier in forward mode
