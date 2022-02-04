@@ -26,22 +26,19 @@ class TopNRegionsF2(tf.keras.metrics.Metric):
         self.f2s = self.add_weight(name="f2", initializer="zeros")
         self.label_decoder = label_decoder
 
-    def update_state(self, y_true, y_pred):
+    def update_state(self, y_true, y_pred, sample_weight=None):
 
         print("Python interpreter in TopNRegionsF2.update_state()")
 
         ignore = tf.convert_to_tensor(
-            [False] * self.N
+            [tf.constant(False)] * self.N
             + [
-                True,
+                tf.constant(True),
             ]
-            * (y_pred.shape[1] - self.N)
+            * (y_pred.shape[1] - self.N), dtype=tf.bool
         )
 
-        # Replicate across images
-        ignore = tf.tile(ignore[tf.newaxis, :], (y_pred.shape[0], 1))
-
-        f2s = compute_F2_scores(y_pred, self.label_decoder(y_true), ignore)
+        f2s = compute_F2_scores(y_pred, self.label_decoder(y_true), ignore, unique_ignore=False)
 
         self.f2s.assign_add(tf.reduce_mean(f2s))
 
@@ -65,7 +62,7 @@ class ThresholdF2(tf.keras.metrics.Metric):
         self.f2s = self.add_weight(name="f2", initializer="zeros")
         self.label_decoder = label_decoder
 
-    def update_state(self, y_true, y_pred):
+    def update_state(self, y_true, y_pred, sample_weight=None):
 
         print("Python interpreter in ThresholdF2.update_state()")
 
@@ -78,7 +75,7 @@ class ThresholdF2(tf.keras.metrics.Metric):
             0.0,
         )
 
-        f2s = compute_F2_scores(y_pred[:, :, :4], self.label_decoder(y_true), ignore)
+        f2s = compute_F2_scores(y_pred[:, :, :4], self.label_decoder(y_true), ignore, unique_ignore=True)
 
         self.f2s.assign_add(tf.reduce_mean(f2s))
 
@@ -92,6 +89,7 @@ def compute_F2_scores(
     labels,
     ignore,
     IoU_thresholds=[0.3, 0.5, 0.8],
+    unique_ignore=True
 ):
 
     """
@@ -111,18 +109,31 @@ def compute_F2_scores(
     IoU_thresholds : list of float
         Minimum IoU to consider a proposal and a label a match. The F2 score is
         a reduce_mean() over the set of thresholds provided.
+    unique_ignore : bool
+        Use a unique ignore per image otherwise move it outside the map_fn call.
     """
 
     print("Python interpreter in evaluation.compute_F2_scores()")
 
-    # Make an analogue to functools.partial()
-    def _compute_F2(data):
+    if unique_ignore:
+
+      # Make an analogue to functools.partial()
+      def _compute_F2_unique(data):
         return compute_FBeta_score(*data, thresholds=IoU_thresholds, beta=2.0)
 
-    return tf.map_fn(
-        _compute_F2, (proposals, labels, ignore), fn_output_signature=tf.float32
-    )
+      return tf.map_fn(
+        _compute_F2_unique, (proposals, labels, ignore), fn_output_signature=tf.float32
+      )
 
+    else:
+
+      # Make an analogue to functools.partial()
+      def _compute_F2(data):
+        return compute_FBeta_score(*data, ignore, thresholds=IoU_thresholds, beta=2.0)
+
+      return tf.map_fn(
+        _compute_F2, (proposals, labels), fn_output_signature=tf.float32
+      )
 
 def compute_FBeta_score(proposal, label, ignore, thresholds, beta):
 
