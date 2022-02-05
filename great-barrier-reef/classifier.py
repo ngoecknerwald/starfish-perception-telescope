@@ -170,9 +170,9 @@ class ClassifierModel(tf.keras.Model):
         match = tf.math.argmax(IoUs, axis=1)  # returns (nstarfish, ) tensor
 
         # check if the match is a real max or the first of all zeros
-        check_match = (tf.math.count_nonzero(IoUs, axis=1) > 0)
+        check_match = tf.math.count_nonzero(IoUs, axis=1) > 0
 
-        # set index to -1 for false matches. This won't equal any index in range(proposals), 
+        # set index to -1 for false matches. This won't equal any index in range(proposals),
         # so -1 means "not in range" here rather than "last index"
         match = tf.where(check_match, match, -1)
 

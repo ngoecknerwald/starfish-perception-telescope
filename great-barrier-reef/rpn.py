@@ -164,6 +164,44 @@ class RPNModel(tf.keras.Model):
             ]
         )
 
+    @tf.function
+    def test_step(self, data):
+        """
+        Shallow wrapper around the loss calculation
+        to get a loss and metrics from the validation
+        set during training.
+
+        data : tuple
+            tf.Tensor() containing images and integer labels.
+
+        """
+
+        print("Python interpreter in RPNModel.test_step()")
+
+        # Run the feature extractor
+        features = self.backbone(data[0])
+
+        # Accumulate RoI data
+        labels = self.label_decoder(data[1])
+        rois = tf.map_fn(self._accumulate_roi, labels)
+
+        # Call the RPN
+        cls, bbox = self.rpn(features, training=True)
+
+        # Compute the loss using the classification scores and bounding boxes
+        loss = tf.reduce_sum(
+            tf.map_fn(
+                self._compute_loss,
+                [cls, bbox, rois],
+                fn_output_signature=(tf.float32),
+            )
+        )
+
+        self.compiled_metrics.update_state(
+            data[1], self.call(features, input_images=False, output_images=True)
+        )
+        return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
+
     # Two methods required by the tf.keras.Model interface,
     # the training step and the forward pass
     @tf.function
