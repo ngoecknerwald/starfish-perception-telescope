@@ -654,7 +654,7 @@ class RPNWrapper:
         training_params={
             "zoom": 0.01,
             "rotation": 0.01,
-            "gaussian": 10.0,
+            "gaussian": 5.0,
             "contrast": 0.25,
         },
     ):

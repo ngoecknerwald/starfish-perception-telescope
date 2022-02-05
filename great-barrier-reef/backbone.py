@@ -133,7 +133,7 @@ class Backbone(tf.keras.layers.Layer):
         train_params={
             "zoom": (-0.5, 0.5),
             "flip": "horizontal",
-            "gaussian": 10.0,
+            "gaussian": 5.0,
             "rotation": 0.25,
             "contrast": 0.25,
             "dropout": 0.5,
