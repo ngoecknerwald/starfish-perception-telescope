@@ -130,7 +130,7 @@ class Backbone(tf.keras.layers.Layer):
         optimizer_kwargs={},
         fit_kwargs={},
         return_history=False,
-        train_params={
+        training_params={
             "zoom": (-0.5, 0.5),
             "flip": "horizontal",
             "gaussian": 5.0,

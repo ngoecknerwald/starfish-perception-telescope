@@ -135,6 +135,7 @@ class RPNModel(tf.keras.Model):
         self.n_roi_output = n_roi_output
         self.IoU_neg_threshold = IoU_neg_threshold
         self.rpn_dropout = rpn_dropout
+        self.training_params = training_params
 
         # Anchor box sizes
         self._build_anchor_boxes()
