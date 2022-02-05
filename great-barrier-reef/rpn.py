@@ -91,6 +91,7 @@ class RPNModel(tf.keras.Model):
         n_roi_output,
         IoU_neg_threshold,
         rpn_dropout,
+        training_params,
     ):
         """
         Initialize the RPN model for pretraining.
@@ -117,6 +118,8 @@ class RPNModel(tf.keras.Model):
             IoU to declare that a region proposal is a negative example.
         rpn_dropout : float or None
             Add dropout to the RPN with this fraction. Pass None to skip.
+        training_params : dict
+            Augmentation parameters to use in *image space* before image preprocessing.
         """
 
         super().__init__()
@@ -151,6 +154,16 @@ class RPNModel(tf.keras.Model):
         # Regression loss terms
         self.bbox_reg_l1 = tf.keras.losses.Huber()
 
+        # Data augmentation
+        self.augmentation = tf.keras.Sequential(
+            [
+                tf.keras.layers.RandomZoom(training_params["zoom"]),
+                tf.keras.layers.RandomRotation(training_params["rotation"]),
+                tf.keras.layers.GaussianNoise(training_params["gaussian"]),
+                tf.keras.layers.RandomContrast(training_params["contrast"]),
+            ]
+        )
+
     # Two methods required by the tf.keras.Model interface,
     # the training step and the forward pass
     @tf.function
@@ -169,8 +182,11 @@ class RPNModel(tf.keras.Model):
 
         print("Python interpreter in RPNModel.train_step()")
 
+        # Run the data augmentation
+        data_aug = self.augmentation(data[0])
+
         # Run the feature extractor
-        features = self.backbone(data[0])
+        features = self.backbone(data_aug)
 
         # Accumulate RoI data
         labels = self.label_decoder(data[1])
@@ -581,11 +597,11 @@ class RPNWrapper:
         kernel_size=3,
         anchor_stride=1,
         window_sizes=[2.0, 4.0],
-        filters=512,
+        filters=1024,
         roi_minibatch_per_image=6,
         n_roi_output=128,
         IoU_neg_threshold=0.01,
-        rpn_dropout=0.2,
+        rpn_dropout=0.5,
         learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
             boundaries=[10000, 20000],
             values=[1e-3, 1e-4, 1e-5],
@@ -597,7 +613,14 @@ class RPNWrapper:
         momentum=0.9,
         clipvalue=1e2,
         top_n_f2=10,
+        training_params={
+            "zoom": 0.01,
+            "rotation": 0.01,
+            "gaussian": 10.0,
+            "contrast": 0.25,
+        },
     ):
+
         """
         Wrapper class for the RPN model
 
@@ -634,6 +657,10 @@ class RPNWrapper:
             Maximum allowable gradient for the SGDW optimizer.
         top_n_f2 : int
             Number of regions to consider when computing the F2 score for the training / validation set.
+        training_params : dict
+            Parameters to pass to the augmentation segment when training. The Gaussian noise augmentation
+            and contrast are copied over from the backbone fine tuning. The translation and rotation
+            should be small enough to not meaningfully break the matching of RoI to the ground truth boxes.
         """
 
         # RPN model itself

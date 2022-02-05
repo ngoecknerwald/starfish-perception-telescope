@@ -130,6 +130,14 @@ class Backbone(tf.keras.layers.Layer):
         optimizer_kwargs={},
         fit_kwargs={},
         return_history=False,
+        train_params={
+            "zoom": (-0.5, 0.5),
+            "flip": "horizontal",
+            "gaussian": 10.0,
+            "rotation": 0.25,
+            "contrast": 0.25,
+            "dropout": 0.5,
+        },
     ):
         """
         Pretrain a backbone to do classification on starfish / not starfish thumbnails.
@@ -158,6 +166,8 @@ class Backbone(tf.keras.layers.Layer):
             Set of keyword arguments to pass to the fine tuning fit call.
         return_history : bool
             Return the training history
+        train_params : dict
+            Augmentation and regularization parameters to use fine tuning the backbone.
         """
 
         # Check to make sure the backbone has actually been instantiated
@@ -172,12 +182,13 @@ class Backbone(tf.keras.layers.Layer):
         # of starfish that we'd expect to see in the validation/test set.
         model = tf.keras.Sequential(
             [
-                tf.keras.layers.RandomZoom((-0.5, 0.5)),
-                tf.keras.layers.RandomFlip("horizontal"),
-                tf.keras.layers.RandomRotation(0.25),
-                tf.keras.layers.RandomContrast(0.25),
+                tf.keras.layers.RandomZoom(training_params["zoom"]),
+                tf.keras.layers.RandomFlip(training_params["flip"]),
+                tf.keras.layers.RandomRotation(training_params["rotation"]),
+                tf.keras.layers.GaussianNoise(training_params["gaussian"]),
+                tf.keras.layers.RandomContrast(training_params["contrast"]),
                 self.extractor,
-                tf.keras.layers.Dropout(0.5),
+                tf.keras.layers.Dropout(training_params["dropout"]),
                 tf.keras.layers.GlobalAveragePooling2D(),
                 tf.keras.layers.Dense(1),
             ]
