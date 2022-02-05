@@ -713,6 +713,7 @@ class RPNWrapper:
             n_roi_output,
             IoU_neg_threshold,
             rpn_dropout,
+            training_params,
         )
 
         # Optimizer parameters
