@@ -119,7 +119,7 @@ class ClassifierModel(tf.keras.Model):
                 tf.keras.layers.RandomZoom(self.training_params["zoom"]),
                 tf.keras.layers.RandomRotation(self.training_params["rotation"]),
                 tf.keras.layers.GaussianNoise(self.training_params["gaussian"]),
-                tf.keras.layers.RandomContrast(self.training_params["contrast"}),
+                tf.keras.layers.RandomContrast(self.training_params["contrast"]),
             ]
         )
 
@@ -326,6 +326,7 @@ class ClassifierModel(tf.keras.Model):
                 [cls, bbox, roi, labels],
                 fn_output_signature=(tf.float32),
             )
+        )
 
 #        self.compiled_metrics.update_state(
 #            data[1], self.call((features, roi))
