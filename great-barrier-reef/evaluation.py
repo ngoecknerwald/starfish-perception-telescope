@@ -74,8 +74,8 @@ class ThresholdF2(tf.keras.metrics.Metric):
 
         ignore = tf.where(
             y_pred[:, :, 4] > self.thresh,
-            1.0,
-            0.0,
+            tf.constant(False),
+            tf.constant(True),
         )
 
         f2s = compute_F2_scores(
