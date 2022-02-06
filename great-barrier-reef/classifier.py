@@ -158,7 +158,7 @@ class ClassifierModel(tf.keras.Model):
 
         data : (tf.tensor, tf.tensor, tf.tensor, tf.tensor)
             Packed classifier scores, bbox regressors, roi, and labels for this image.
-            Note that the RoI should be in *image coordinates*, not feature coordinates.
+            Note that the RoI should be in *feature coordinates*, not image coordinates.
 
         """
 
@@ -167,8 +167,13 @@ class ClassifierModel(tf.keras.Model):
         # No batch dimensions in this function, called with map_fn
 
         # Unpack and cast RoI to float for later IoU calculations
-        # Note that we
         cls, bbox, roi, labels = data
+
+        # Conver to image coordinates
+        roi = tf.cast(roi, tf.float32)
+        x, y = self.backbone.feature_coords_to_image_coords(roi[:, 0], roi[:, 1])
+        w, h = self.backbone.feature_coords_to_image_coords(roi[:, 2], roi[:, 3])
+        roi = tf.stack([x, y, w, h], axis=0)
 
         # Figure out if there is a starfish or not
         starfish = labels[tf.math.count_nonzero(labels, axis=1) > 0]
@@ -247,7 +252,7 @@ class ClassifierModel(tf.keras.Model):
             (
                 features,
                 self.rpnwrapper.propose_regions(
-                    features, input_images=False, output_images=True
+                    features, input_images=False, output_images=False
                 ),
             )
         )
@@ -302,7 +307,7 @@ class ClassifierModel(tf.keras.Model):
             (
                 features,
                 self.rpn.propose_regions(
-                    features, input_images=False, output_images=True
+                    features, input_images=False, output_images=False
                 ),
             )
         )
