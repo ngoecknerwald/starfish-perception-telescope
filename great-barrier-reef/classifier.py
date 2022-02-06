@@ -303,10 +303,10 @@ class ClassifierModel(tf.keras.Model):
         labels = self.label_decoder(data[1])
 
         # Loop over images accumulating RoI proposals
-        features, roi = self.pool(
+        features, roi = self.roi_pool(
             (
                 features,
-                self.rpn.propose_regions(
+                self.rpnwrapper.propose_regions(
                     features, input_images=False, output_images=False
                 ),
             )
