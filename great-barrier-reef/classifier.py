@@ -10,9 +10,9 @@ class Classifier(tf.keras.layers.Layer):
     def __init__(
         self,
         n_proposals,
-        dense_layers=512,
+        dropout,
+        dense_layers,
         n_classes=2,
-        dropout=0.2,
     ):
         """
         Class for the Faster R-CNN output network.
@@ -52,6 +52,9 @@ class Classifier(tf.keras.layers.Layer):
             self.dropout1 = tf.keras.layers.Dropout(self.dropout)
 
     def call(self, x, training=False):
+
+        print("Python interpreter in Classifier.call()")
+
         x = self.conv1(x)
         x = self.flatten(x)
         if hasattr(self, "dropout1") and training:
@@ -65,13 +68,13 @@ class ClassifierModel(tf.keras.Model):
     def __init__(
         self,
         backbone,
-        rpn,
-        pool,
+        rpnwrapper,
+        roi_pool,
         label_decoder,
         n_proposals,
-        training_params,
+        augmentation_params,
         dense_layers=512,
-        class_dropout=0.2,
+        class_dropout=0.5,
     ):
         """
         Wrapper class for the final classification model.
@@ -96,18 +99,18 @@ class ClassifierModel(tf.keras.Model):
 
         # Record for posterity
         self.backbone = backbone
-        self.rpn = rpn
-        self.pool = pool
+        self.rpnwrapper = rpnwrapper
+        self.roi_pool = roi_pool
         self.label_decoder = label_decoder
         self.n_proposals = n_proposals
         self.dense_layers = dense_layers
-        self.training_params = training_params
+        self.augmentation_params = augmentation_params
 
         # Network and optimizer
         self.classifier = Classifier(
             n_proposals,
-            dropout=class_dropout,
-            dense_layers=dense_layers,
+            class_dropout,
+            dense_layers,
         )
 
         # Loss calculations
@@ -116,10 +119,10 @@ class ClassifierModel(tf.keras.Model):
 
         self.augmentation = tf.keras.Sequential(
             [
-                tf.keras.layers.RandomZoom(self.training_params["zoom"]),
-                tf.keras.layers.RandomRotation(self.training_params["rotation"]),
-                tf.keras.layers.GaussianNoise(self.training_params["gaussian"]),
-                tf.keras.layers.RandomContrast(self.training_params["contrast"]),
+                tf.keras.layers.RandomZoom(self.augmentation_params["zoom"]),
+                tf.keras.layers.RandomRotation(self.augmentation_params["rotation"]),
+                tf.keras.layers.GaussianNoise(self.augmentation_params["gaussian"]),
+                tf.keras.layers.RandomContrast(self.augmentation_params["contrast"]),
             ]
         )
 
@@ -155,21 +158,19 @@ class ClassifierModel(tf.keras.Model):
 
         data : (tf.tensor, tf.tensor, tf.tensor, tf.tensor)
             Packed classifier scores, bbox regressors, roi, and labels for this image.
+            Note that the RoI should be in *image coordinates*, not feature coordinates.
 
         """
 
-        # NO BATCH DIMENSION IN THIS FUNCTION
-        # INTENDED TO BE CALLED WITH MAP_FN
+        print("Python interpreter in classifier._compute_loss()")
 
+        # No batch dimensions in this function, called with map_fn
+
+        # Unpack and cast RoI to float for later IoU calculations
+        # Note that we
         cls, bbox, roi, labels = data
 
-        roi = tf.cast(roi, tf.float32)
-        # Coordinates and area of the proposed region
-        x, y = self.backbone.feature_coords_to_image_coords(roi[:, 0], roi[:, 1])
-        w, h = self.backbone.feature_coords_to_image_coords(roi[:, 2], roi[:, 3])
-
-        roi = tf.stack([x, y, w, h], axis=0)
-
+        # Figure out if there is a starfish or not
         starfish = labels[tf.math.count_nonzero(labels, axis=1) > 0]
 
         def _calc_IoU(sf):
@@ -177,19 +178,21 @@ class ClassifierModel(tf.keras.Model):
 
         IoUs = tf.map_fn(_calc_IoU, starfish)  # returns (nstarfish, nroi) tensor
 
-        # for each starfish, grab the highest IoU roi
+        # For each starfish, grab the highest IoU roi
         match = tf.math.argmax(IoUs, axis=1)  # returns (nstarfish, ) tensor
 
-        # check if the match is a real max or the first of all zeros
+        # Check if the match is a real max or the first of all zeros
         check_match = tf.math.count_nonzero(IoUs, axis=1) > 0
 
-        # set index to -1 for false matches. This won't equal any index in range(proposals),
+        # Set index to -1 for false matches. This won't equal any index in range(proposals),
         # so -1 means "not in range" here rather than "last index"
         match = tf.where(check_match, match, -1)
 
-        # First the regularization term
-        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
-        loss += tf.nn.l2_loss(bbox) / tf.size(bbox, out_type=tf.float32)
+        # First the regularization term, turned down to match what's in the RPN
+        # This regularization is on the outputs of the classifier network, not weights
+        # which is done implicitly by the SGDW optimizer
+        loss = tf.nn.l2_loss(cls) / (100.0 * tf.size(cls, out_type=tf.float32))
+        loss += tf.nn.l2_loss(bbox) / (10.0 * tf.size(bbox, out_type=tf.float32))
 
         def _bbox_loss(idx):
             k = tf.where(match == idx)
@@ -240,11 +243,11 @@ class ClassifierModel(tf.keras.Model):
         labels = self.label_decoder(data[1])
 
         # Loop over images accumulating RoI proposals
-        features, roi = self.pool(
+        features, roi = self.roi_pool(
             (
                 features,
-                self.rpn.propose_regions(
-                    features, input_images=False, output_images=False
+                self.rpnwrapper.propose_regions(
+                    features, input_images=False, output_images=True
                 ),
             )
         )
@@ -253,6 +256,7 @@ class ClassifierModel(tf.keras.Model):
         with tf.GradientTape() as tape:
 
             cls, bbox = self.classifier(features, training=True)
+
             loss = tf.reduce_sum(
                 tf.map_fn(
                     self._compute_loss,
@@ -271,9 +275,7 @@ class ClassifierModel(tf.keras.Model):
             if grad is not None
         )
 
-        # self.compiled_metrics.update_state(
-        #     data[1], self.call((features, roi))
-        # )
+        self.compiled_metrics.update_state(data[1], self.call((features, roi)))
         return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
 
     @tf.function
@@ -300,13 +302,12 @@ class ClassifierModel(tf.keras.Model):
             (
                 features,
                 self.rpn.propose_regions(
-                    features, input_images=False, output_images=False
+                    features, input_images=False, output_images=True
                 ),
             )
         )
 
         # Classification layer forward pass
-
         cls, bbox = self.classifier(features, training=False)
         loss = tf.reduce_sum(
             tf.map_fn(
@@ -316,9 +317,7 @@ class ClassifierModel(tf.keras.Model):
             )
         )
 
-        # self.compiled_metrics.update_state(
-        #     data[1], self.call((features, roi))
-        # )
+        self.compiled_metrics.update_state(data[1], self.call((features, roi)))
         return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
 
     @tf.function
@@ -359,27 +358,3 @@ class ClassifierModel(tf.keras.Model):
         h = roi[:, :, 3] * geometry.safe_exp(bbox[:, :, 3])
 
         return tf.stack([x, y, w, h, objectness], axis=-1)
-
-    def read_scores(data):
-        """
-        Convert network output to dicts of predicted locations.
-
-        data : tensor of shape (None, self.n_proposals, 5)
-        where the last axis containts (x,y,w,h,score).
-
-        """
-
-        x, y, w, h, score = tf.unstack(data, axis=-1)
-        return [
-            [
-                {
-                    "x": x[i_image, i_roi].numpy(),
-                    "y": y[i_image, i_roi].numpy(),
-                    "width": w[i_image, i_roi].numpy(),
-                    "height": h[i_image, i_roi].numpy(),
-                    "score": score[i_image, i_roi].numpy(),
-                }
-                for i_roi in range(self.n_proposals)
-            ]
-            for i_image in range(score.shape[0])
-        ]

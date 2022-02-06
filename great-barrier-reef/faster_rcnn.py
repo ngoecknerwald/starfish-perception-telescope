@@ -104,11 +104,6 @@ class FasterRCNNWrapper:
         # Instantiate the tail network
         self.instantiate_RoI_pool(roi_kwargs)
 
-        # This should be instantiated last
-        self.instantiate_classifier(
-            classifier_weights, classifier_augmentation, classifier_kwargs
-        )
-
         # Optimizer for the intitial classifier training
         self.optimizer = tfa.optimizers.SGDW(
             learning_rate=classifier_learning_rate,
@@ -123,6 +118,11 @@ class FasterRCNNWrapper:
             evaluation.ThresholdF2(_threshold, self.data_loader_full.decode_label)
             for _threshold in validation_f2_thresholds
         ]
+
+        # This should be instantiated last
+        self.instantiate_classifier(
+            classifier_weights, classifier_augmentation, classifier_kwargs
+        )
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         """
@@ -309,71 +309,95 @@ class FasterRCNNWrapper:
             )
 
     # TODO: make this function compatible with the new classifier architecture
-    def predict(self, image, return_dict=False):
+    # def predict(self, image, return_dict=False):
+    #
+    #    """
+    #    Make predictions for an image.
+    #
+    #    Arguments:
+    #
+    #    Image : tf.tensor
+    #        Minibatch of image(s) to register a prediction for.
+    #    """
+    #    print("Function not currently compatible with classifier architecture")
+    #    assert False
+    #
+    #    # Usual invocation, taking advantage of the shared backbone
+    #    features = self.backbone.extractor(image)
+    #    roi = self.rpnwrapper.propose_regions(
+    #        features, input_images=False, output_images=False
+    #    )
+    #    features, roi = self.RoI_pool(features, roi)
 
-        """
-        Make predictions for an image.
+    #    # Run the classifier in forward mode
+    #    minibatch_regions = self.classmodel(
+    #        features,
+    #        roi.astype("float32"),
+    #    )
 
-        Arguments:
-
-        Image : tf.tensor
-            Minibatch of image(s) to register a prediction for.
-        """
-        print("Function not currently compatible with classifier architecture")
-        assert False
-
-        # Usual invocation, taking advantage of the shared backbone
-        features = self.backbone.extractor(image)
-        roi = self.rpnwrapper.propose_regions(
-            features, input_images=False, output_images=False
-        )
-        features, roi = self.RoI_pool(features, roi)
-
-        # Run the classifier in forward mode
-        minibatch_regions = self.classmodel(
-            features,
-            roi.astype("float32"),
-        )
-
-        # output munging
-        minibatch_return = []
-        for regions in minibatch_regions:
-
-            # Clip regions
-            _regions = [
-                region
-                for region in regions
-                if region["score"] > self.positive_threshold
-            ]
-            # Sort by objectness
-            _regions = sorted(
-                _regions, key=lambda region: region["score"], reverse=True
-            )
-            if return_dict:
-                minibatch_return.append(_regions)
-            else:
-                minibatch_return.append(
-                    " ".join(
-                        [
-                            FasterRCNNWrapper._region_to_string(region)
-                            for region in _regions
-                        ]
-                    )
-                )
-
-        return minibatch_return
+    #    # output munging
+    #    minibatch_return = []
+    #    for regions in minibatch_regions:
+    #
+    #        # Clip regions
+    #        _regions = [
+    #            region
+    #            for region in regions
+    #            if region["score"] > self.positive_threshold
+    #        ]
+    #        # Sort by objectness
+    #        _regions = sorted(
+    #            _regions, key=lambda region: region["score"], reverse=True
+    #        )
+    #        if return_dict:
+    #            minibatch_return.append(_regions)
+    #        else:
+    #            minibatch_return.append(
+    #                " ".join(
+    #                    [
+    #                        FasterRCNNWrapper._region_to_string(region)
+    #                        for region in _regions
+    #                    ]
+    #                )
+    #            )
+    #
+    #    return minibatch_return
 
     # Convert the output string to the format expected by the test set evaluation
     # From code other people have posted the order seems to be (score, x, y, w, h)
-    @staticmethod
-    def _region_to_string(region):
-        return "%02f %d %d %d %d" % (
-            region["score"],
-            int(region["x"]),
-            int(region["y"]),
-            int(region["width"]),
-            int(region["height"]),
-        )
+    # @staticmethod
+    # def _region_to_string(region):
+    #    return "%02f %d %d %d %d" % (
+    #        region["score"],
+    #        int(region["x"]),
+    #        int(region["y"]),
+    #        int(region["width"]),
+    #        int(region["height"]),
+    #    )
+
+    # def read_scores(data):
+    #    """
+    #    Convert network output to dicts of predicted locations.
+    #
+    #    data : tensor of shape (None, self.n_proposals, 5)
+    #    where the last axis containts (x,y,w,h,score).
+    #
+    #    """
+    #
+    #    x, y, w, h, score = tf.unstack(data, axis=-1)
+    #    return [
+    #        [
+    #            {
+    #                "x": x[i_image, i_roi].numpy(),
+    #                "y": y[i_image, i_roi].numpy(),
+    #                "width": w[i_image, i_roi].numpy(),
+    #                "height": h[i_image, i_roi].numpy(),
+    #                "score": score[i_image, i_roi].numpy(),
+    #            }
+    #            for i_roi in range(self.n_proposals)
+    #        ]
+    #        for i_image in range(score.shape[0])
+    #    ]
 
     # Finally, we want to instantiate a copy of the backbone that the
     # RPN will use to propose regions. We will end up fine tuning the
