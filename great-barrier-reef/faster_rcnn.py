@@ -1,7 +1,7 @@
 # High-level class for the full Faster R-CNN network.
 import tensorflow as tf
 import tensorflow_addons as tfa
-import backbone, classifier, data_utils, roi_pooling, rpn
+import backbone, classifier, data_utils, roi_pooling, rpn, evaluation
 import os
 
 
@@ -12,7 +12,7 @@ class FasterRCNNWrapper:
         n_proposals=10,
         positive_threshold=0.5,
         datapath="/content",
-        backbone_type="InceptionResNet-V2",
+        backbone_type="ResNet50",
         backbone_weights="finetune",
         rpn_weights=None,
         rpn_kwargs={},
@@ -35,25 +35,28 @@ class FasterRCNNWrapper:
             "gaussian": 5.0,
             "contrast": 0.25,
         },
-        finetuning_epochs=5,
+        validation_f2_thresholds=[0.1, 0.25, 0.5, 0.75, 0.9],
     ):
 
         """
         Instantiate the wrapper for the overall Faster R-CNN
 
         Arguments:
+
         input_shape : arr or tuple
             Shape of input image (y,x,channels)
-        n_proposals :
+        n_proposals : int
             Number of regions proposed by the full network. Note that
             this is (by construction) the maximum number of positive examples
             in an image that can be detected.
+        positive_threshold : float
+            Classification score at which to declare a region as a starfish.
         datapath : str
             Location of the competition dataset.
         backbone_type : str
             Flavor of backone to use for feature extraction. Should
             refer to  a subclass of Backbone(). Currently supported options
-            are InceptionResNet-V2 and VGG16.
+            are InceptionResNet-V2, VGG16, and ResNet50.
         backbone_weights : str
             Options are 'imagenet' to use pretrained weights from ImageNet, 'finetune'
             to run the fine tuning loop with a classification network on thumbnails,
@@ -69,20 +72,17 @@ class FasterRCNNWrapper:
         classifier_kwargs : dict
             Optional keyword arguments passed to the Classifier wrapper.
         classifier_learning_rate : float or tf.keras.optimizers.schedules
-            Learning rate for the SDGW optimizer.
+            Learning rate for the classifier SDGW optimizer.
         classifier_weight_decay : float or tf.keras.optimizers.schedules
-            Weight decay for the optimizer.
+            Weight decay for the classifier SGDW optimizer.
         classifier_momentum : float
             Momentum parameter for the SGDW optimizer.
         classifier_clipvalue : float
             Maximum allowable gradient for the SGDW optimizer.
-        classifier_training_params : dict
+        classifier_augmentation : dict
             Parameters to pass to the augmentation segment when training. The Gaussian noise augmentation
             and contrast are copied over from the backbone fine tuning. The translation and rotation
             should be small enough to not meaningfully break the matching of RoI to the ground truth boxes.
-        finetuning_epochs : int
-            Number of epochs to fine-tune the backbone, RPN, and classifier.
-
         """
 
         # Record for posterity
@@ -104,7 +104,12 @@ class FasterRCNNWrapper:
         # Instantiate the tail network
         self.instantiate_RoI_pool(roi_kwargs)
 
-        # Optimizer for the full network training
+        # This should be instantiated last
+        self.instantiate_classifier(
+            classifier_weights, classifier_augmentation, classifier_kwargs
+        )
+
+        # Optimizer for the intitial classifier training
         self.optimizer = tfa.optimizers.SGDW(
             learning_rate=classifier_learning_rate,
             weight_decay=classifier_weight_decay,
@@ -112,10 +117,12 @@ class FasterRCNNWrapper:
             clipvalue=classifier_clipvalue,
         )
 
-        # This should be instantiated last
-        self.instantiate_classifier(
-            classifier_weights, classifier_augmentation, classifier_kwargs
-        )
+        # Metric to assess classifier performance and set the final
+        # threshold on the test set based on on the F2 scores on the validation set
+        self.validation_f2s = [
+            evaluation.ThresholdF2(_threshold, self.data_loader_full.decode_label)
+            for _threshold in validation_f2_thresholds
+        ]
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         """
@@ -196,18 +203,6 @@ class FasterRCNNWrapper:
             assert os.path.exists(backbone_weights)
             print("Loading backbone weights from %s" % backbone_weights)
             self.backbone.load_backbone(backbone_weights)
-
-        # TODO enable this with the fine tuning loop.
-
-        # Finally, we want to instantiate a copy of the backbone that the
-        # RPN will use to propose regions. We will end up fine tuning the
-        # backbone in conjunction with the classification layers and we
-        # don't want the backbone changing under the RPN's feet.
-
-        # Create a new backbone and copy weights over to make a deep copy
-        # init_args = {"input_shape": None, "weights": None}
-        # self.backbone_rpn = backbone.instantiate(backbone_type, init_args)
-        # self.backbone_rpn.network.set_weights(self.backbone.network.get_weights())
 
     def instantiate_RPN(self, rpn_weights, rpn_kwargs):
         """
@@ -303,27 +298,15 @@ class FasterRCNNWrapper:
 
         else:  # Do the first order training of the classification weights
 
-            self.train_classifier(epochs)
+            self.classmodel.compile(
+                optimizer=self.optimizer, metrics=self.validation_f2s
+            )
 
-    def train_classifier(self, epochs, kwargs={}):
-        """
-        Main training loop iterating over a dataset.
-
-        Arguments:
-
-        train_dataset: tensorflow dataset
-            Dataset of input images. Minibatch size and validation
-            split are determined when this is created.
-        epochs : int
-            Number of epochs to run training for.
-
-        """
-        training = self.data_loader_full.get_training()
-
-        self.classmodel.compile(
-            optimizer=self.optimizer,
-        )
-        self.classmodel.fit(training, epochs=epochs, **kwargs)
+            self.classmodel.fit(
+                self.data_loader_full.get_training(),
+                epochs=epochs,
+                validation_data=self.data_loader_full.get_validation(),
+            )
 
     # TODO: make this function compatible with the new classifier architecture
     def predict(self, image, return_dict=False):
@@ -380,10 +363,8 @@ class FasterRCNNWrapper:
 
         return minibatch_return
 
-    # We need to figure out if the correct order is what we're calling (x, y) or (y, x)
-    # because the documentation on the website is unclear about this
-    #
-    # From code other people have posted it seems to be (x, y, w, h) so I'm leaving that for now
+    # Convert the output string to the format expected by the test set evaluation
+    # From code other people have posted the order seems to be (score, x, y, w, h)
     @staticmethod
     def _region_to_string(region):
         return "%02f %d %d %d %d" % (
@@ -394,40 +375,46 @@ class FasterRCNNWrapper:
             int(region["height"]),
         )
 
-    def fine_tuning_loop(self):
+    # Finally, we want to instantiate a copy of the backbone that the
+    # RPN will use to propose regions. We will end up fine tuning the
+    # backbone in conjunction with the classification layers and we
+    # don't want the backbone changing under the RPN's feet.
 
-        pass
+    # Create a new backbone and copy weights over to make a deep copy
+    # init_args = {"input_shape": None, "weights": None}
+    # self.backbone_rpn = backbone.instantiate(backbone_type, init_args)
+    # self.backbone_rpn.network.set_weights(self.backbone.network.get_weights())
 
-        # Set self.backbone_rpn trainable=False <- the copy of the backbone fed into the RPN
-        # Set self.backbone trainable = True <- the copy of the backbone fed into the classifier
+    # Set self.backbone_rpn trainable=False <- the copy of the backbone fed into the RPN
+    # Set self.backbone trainable = True <- the copy of the backbone fed into the classifier
 
-        # for i in range(epochs):
-        #
-        #    # Fine tuning loop for the backbone + classifier
-        #    for i, (train_x, label_x) in enumerate(
-        #        self.data_loader_full.get_training()
-        #    ):
-        #
-        #        # forward mode
-        #        roi = self.rpnwrapper.propose_regions(train_x)
-        #        features = self.backbone.extractor(train_x)
-        #        features, roi = self.RoI_pool(features, roi)
+    # for i in range(epochs):
+    #
+    #    # Fine tuning loop for the backbone + classifier
+    #    for i, (train_x, label_x) in enumerate(
+    #        self.data_loader_full.get_training()
+    #    ):
+    #
+    #        # forward mode
+    #        roi = self.rpnwrapper.propose_regions(train_x)
+    #        features = self.backbone.extractor(train_x)
+    #        features, roi = self.RoI_pool(features, roi)
 
-        #        # TODO we need to move the backbone call into the training step method for this to work
-        #        # TODO we also need to define "fine tuning" learning rates
-        #        self.classmodel.train_step(
-        #            features,
-        #            roi,
-        #            [self.data_loader_full.decode_label(_label) for _label in label_x],
-        #            update_backbone=True,
-        #            fine_tuning=True
-        #        )
-        #
-        #
-        #     # Now copy over the improved backbone weights to the RPN
-        #     self.bacbone_rpn.network.set_weights(self.backbone.network.get_weights)
-        #
-        #     # TODO add a fine_tuning kwarg to the rpn training
-        #     self.rpnwrapper.train_rpn(
-        #        self.data_loader_full.get_training(), self.data_loader_full.decode_label, fine_tuning=True
-        #     )
+    #        # TODO we need to move the backbone call into the training step method for this to work
+    #        # TODO we also need to define "fine tuning" learning rates
+    #        self.classmodel.train_step(
+    #            features,
+    #            roi,
+    #            [self.data_loader_full.decode_label(_label) for _label in label_x],
+    #            update_backbone=True,
+    #            fine_tuning=True
+    #        )
+    #
+    #
+    #     # Now copy over the improved backbone weights to the RPN
+    #     self.bacbone_rpn.network.set_weights(self.backbone.network.get_weights)
+    #
+    #     # TODO add a fine_tuning kwarg to the rpn training
+    #     self.rpnwrapper.train_rpn(
+    #        self.data_loader_full.get_training(), self.data_loader_full.decode_label, fine_tuning=True
+    #     )
