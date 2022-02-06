@@ -69,6 +69,7 @@ class ClassifierModel(tf.keras.Model):
         pool,
         label_decoder,
         n_proposals,
+        training_params,
         dense_layers=512,
         class_dropout=0.2,
     ):
@@ -99,6 +100,7 @@ class ClassifierModel(tf.keras.Model):
         self.label_decoder = label_decoder
         self.n_proposals = n_proposals
         self.dense_layers = dense_layers
+        self.training_params = training_params
 
         # Network and optimizer
         self.classifier = Classifier(
@@ -111,6 +113,15 @@ class ClassifierModel(tf.keras.Model):
         self.class_loss = tf.keras.losses.CategoricalCrossentropy()
         self.bbox_reg_l1 = tf.keras.losses.Huber()
         self.bbox_reg_giou = tfa.losses.GIoULoss()
+
+        self.augmentation = tf.keras.Sequential(
+            [
+                tf.keras.layers.RandomZoom(self.training_params["zoom"]),
+                tf.keras.layers.RandomRotation(self.training_params["rotation"]),
+                tf.keras.layers.GaussianNoise(self.training_params["gaussian"]),
+                tf.keras.layers.RandomContrast(self.training_params["contrast"}),
+            ]
+        )
 
     def save_classifier_state(self, filename):
         """
@@ -230,8 +241,11 @@ class ClassifierModel(tf.keras.Model):
         # The official faster R-CNN ties everything in an image together, perhaps to avoid duplicate proposals.
         # We can revisit this later.
 
+        # Run the data augmentation
+        data_aug = self.augmentation(data[0])
+
         # Run the feature extractor
-        features = self.backbone(data[0])
+        features = self.backbone(data_aug)
 
         # Accumulate RoI data
         labels = self.label_decoder(data[1])
@@ -268,7 +282,55 @@ class ClassifierModel(tf.keras.Model):
             if grad is not None
         )
 
-        return {"loss": loss}
+#        self.compiled_metrics.update_state(
+#            data[1], self.call((features, roi))
+#        )
+        return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
+
+    @tf.function
+    def test_step(self, data):
+
+        """
+        Take a test step with the classification network.
+
+        Arguments:
+
+        data : (tf.tensor, labels)
+            Packed images and labels.
+
+        """
+
+
+        # Run the feature extractor
+        features = self.backbone(data[0])
+
+        # Accumulate RoI data
+        labels = self.label_decoder(data[1])
+
+        # Loop over images accumulating RoI proposals
+        features, roi = self.pool(
+            (
+                features,
+                self.rpn.propose_regions(
+                    features, input_images=False, output_images=False
+                ),
+            )
+        )
+
+        # Classification layer forward pass
+
+        cls, bbox = self.classifier(features, training=False)
+        loss = tf.reduce_sum(
+            tf.map_fn(
+                self._compute_loss,
+                [cls, bbox, roi, labels],
+                fn_output_signature=(tf.float32),
+            )
+
+#        self.compiled_metrics.update_state(
+#            data[1], self.call((features, roi))
+#        )
+        return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
 
     @tf.function
     def call(self, data):

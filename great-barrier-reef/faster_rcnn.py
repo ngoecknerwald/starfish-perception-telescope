@@ -32,6 +32,12 @@ class FasterRCNNWrapper:
             ],
             values=[1e-4, 1e-5],
         ),
+        classifier_augmentation={
+            "zoom": 0.01,
+            "rotation": 0.01,
+            "gaussian": 5.0,
+            "contrast": 0.25,
+        },
     ):
 
         """
@@ -97,7 +103,7 @@ class FasterRCNNWrapper:
         )
 
         # This should be instantiated last
-        self.instantiate_classifier(classifier_weights, classifier_kwargs)
+        self.instantiate_classifier(classifier_weights, classifier_augmentation, classifier_kwargs)
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         """
@@ -247,7 +253,7 @@ class FasterRCNNWrapper:
             **roi_kwargs
         )
 
-    def instantiate_classifier(self, classifier_weights, classifier_kwargs):
+    def instantiate_classifier(self, classifier_weights, classifier_augmentation, classifier_kwargs):
 
         """
         Instantiate the classifier wrapper.
@@ -272,6 +278,7 @@ class FasterRCNNWrapper:
             self.RoI_pool,
             self.data_loader_full.decode_label,
             self.n_proposals,
+            classifier_augmentation, 
             **classifier_kwargs
         )
 
