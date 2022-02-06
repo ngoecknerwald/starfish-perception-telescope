@@ -297,24 +297,16 @@ class FasterRCNNWrapper:
             self.classmodel.load_classifier_state(classifier_weights)
 
         else:  # Do the first order training of the classification weights
-            
-            self.train_classifier(epochs)
 
-    def train_classifier(self, epochs):
-
-        # Keras has no .is_compiled() check, so try to print a model summary instead. 
-        try: 
-            self.classmodel.summary()
-        except ValueError:
             self.classmodel.compile(
                 optimizer=self.optimizer, metrics=self.validation_f2s
             )
 
-        self.classmodel.fit(
-            self.data_loader_full.get_training(),
-            epochs=epochs,
-            validation_data=self.data_loader_full.get_validation(),
-        )
+            self.classmodel.fit(
+                self.data_loader_full.get_training(),
+                epochs=epochs,
+                validation_data=self.data_loader_full.get_validation(),
+            )
 
     # TODO: make this function compatible with the new classifier architecture
     # def predict(self, image, return_dict=False):
