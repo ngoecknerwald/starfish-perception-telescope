@@ -19,25 +19,23 @@ class FasterRCNNWrapper:
         roi_kwargs={},
         classifier_weights=None,
         classifier_kwargs={},
-        finetuning_epochs=5,
-        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[
-                10000,
-            ],
-            values=[1e-3, 1e-4],
+        classifier_learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[10000, 20000],
+            values=[1e-3, 1e-4, 1e-5],
         ),
-        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[
-                10000,
-            ],
-            values=[1e-4, 1e-5],
+        classifier_weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+            boundaries=[10000, 20000],
+            values=[1e-5, 1e-6, 1e-7],
         ),
+        classifier_momentum=0.9,
+        classifier_clipvalue=1e2,
         classifier_augmentation={
             "zoom": 0.01,
             "rotation": 0.01,
             "gaussian": 5.0,
             "contrast": 0.25,
         },
+        finetuning_epochs=5,
     ):
 
         """
@@ -70,6 +68,18 @@ class FasterRCNNWrapper:
             Saved weights for the final classification network.
         classifier_kwargs : dict
             Optional keyword arguments passed to the Classifier wrapper.
+        classifier_learning_rate : float or tf.keras.optimizers.schedules
+            Learning rate for the SDGW optimizer.
+        classifier_weight_decay : float or tf.keras.optimizers.schedules
+            Weight decay for the optimizer.
+        classifier_momentum : float
+            Momentum parameter for the SGDW optimizer.
+        classifier_clipvalue : float
+            Maximum allowable gradient for the SGDW optimizer.
+        classifier_training_params : dict
+            Parameters to pass to the augmentation segment when training. The Gaussian noise augmentation
+            and contrast are copied over from the backbone fine tuning. The translation and rotation
+            should be small enough to not meaningfully break the matching of RoI to the ground truth boxes.
         finetuning_epochs : int
             Number of epochs to fine-tune the backbone, RPN, and classifier.
 
@@ -96,14 +106,16 @@ class FasterRCNNWrapper:
 
         # Optimizer for the full network training
         self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=learning_rate,
-            weight_decay=weight_decay,
-            momentum=0.9,
-            clipvalue=1e2,
+            learning_rate=classifier_learning_rate,
+            weight_decay=classifier_weight_decay,
+            momentum=classifier_momentum,
+            clipvalue=classifier_clipvalue,
         )
 
         # This should be instantiated last
-        self.instantiate_classifier(classifier_weights, classifier_augmentation, classifier_kwargs)
+        self.instantiate_classifier(
+            classifier_weights, classifier_augmentation, classifier_kwargs
+        )
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
         """
@@ -253,7 +265,9 @@ class FasterRCNNWrapper:
             **roi_kwargs
         )
 
-    def instantiate_classifier(self, classifier_weights, classifier_augmentation, classifier_kwargs):
+    def instantiate_classifier(
+        self, classifier_weights, classifier_augmentation, classifier_kwargs
+    ):
 
         """
         Instantiate the classifier wrapper.
@@ -278,7 +292,7 @@ class FasterRCNNWrapper:
             self.RoI_pool,
             self.data_loader_full.decode_label,
             self.n_proposals,
-            classifier_augmentation, 
+            classifier_augmentation,
             **classifier_kwargs
         )
 

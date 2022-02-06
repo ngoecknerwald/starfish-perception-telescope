@@ -187,7 +187,7 @@ class RPNModel(tf.keras.Model):
         rois = tf.map_fn(self._accumulate_roi, labels)
 
         # Call the RPN
-        cls, bbox = self.rpn(features, training=True)
+        cls, bbox = self.rpn(features, training=False)
 
         # Compute the loss using the classification scores and bounding boxes
         loss = tf.reduce_sum(

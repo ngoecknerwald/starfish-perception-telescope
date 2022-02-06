@@ -82,13 +82,14 @@ class ClassifierModel(tf.keras.Model):
             Used for geometry methods when taking a training step.
         n_proposals : int
             Number of proposals handed in from the pooled RoI
+        training_params : dict
+            Augmentation parameters to use in *image space* before image preprocessing.
         dense_layers : int
             Number of neurons in the dense network.
         learning_rate : float or tf.keras.optimizers.schedules.LearningRateSchedule
             Learning rate when tuning only the classification layers.
         class_dropout : float between 0 and 1
             Dropout parameter to use when training the classification layers.
-
         """
 
         super().__init__()
@@ -112,7 +113,6 @@ class ClassifierModel(tf.keras.Model):
         # Loss calculations
         self.class_loss = tf.keras.losses.CategoricalCrossentropy()
         self.bbox_reg_l1 = tf.keras.losses.Huber()
-        self.bbox_reg_giou = tfa.losses.GIoULoss()
 
         self.augmentation = tf.keras.Sequential(
             [
@@ -208,7 +208,7 @@ class ClassifierModel(tf.keras.Model):
         for i in tf.range(self.n_proposals, dtype=tf.int64):
             positive = tf.reduce_any(tf.math.equal(i, match))
             if positive:
-                ground_truth = tf.constant([0.0, 0.1])
+                ground_truth = tf.constant([0.0, 1.0])
                 loss += _bbox_loss(i)
             else:
                 ground_truth = tf.constant([1.0, 0.0])
@@ -229,17 +229,6 @@ class ClassifierModel(tf.keras.Model):
             Packed images and labels.
 
         """
-
-        # How are the interconnects in the dense layers created? In theory axis 0 should
-        # be disconnected from the others, but does feature pixel (1, 4) in roi=3 talk to (2,3) in roi=7?
-        # We should be careful about what the Flatten() on line 45 is actually doing.
-
-        # Another option would be to pass individual images through the Classifier() instead of a minibatch
-        # stack of 4, which would make the Flatten() treat the first axis
-        # (i.e. RoI) as independent minibatch examples
-
-        # The official faster R-CNN ties everything in an image together, perhaps to avoid duplicate proposals.
-        # We can revisit this later.
 
         # Run the data augmentation
         data_aug = self.augmentation(data[0])
@@ -282,9 +271,9 @@ class ClassifierModel(tf.keras.Model):
             if grad is not None
         )
 
-#        self.compiled_metrics.update_state(
-#            data[1], self.call((features, roi))
-#        )
+        # self.compiled_metrics.update_state(
+        #     data[1], self.call((features, roi))
+        # )
         return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
 
     @tf.function
@@ -299,7 +288,6 @@ class ClassifierModel(tf.keras.Model):
             Packed images and labels.
 
         """
-
 
         # Run the feature extractor
         features = self.backbone(data[0])
@@ -328,9 +316,9 @@ class ClassifierModel(tf.keras.Model):
             )
         )
 
-#        self.compiled_metrics.update_state(
-#            data[1], self.call((features, roi))
-#        )
+        # self.compiled_metrics.update_state(
+        #     data[1], self.call((features, roi))
+        # )
         return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
 
     @tf.function
