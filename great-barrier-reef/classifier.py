@@ -88,7 +88,6 @@ class ClassifierModel(tf.keras.Model):
         augmentation_params,
         dense_layers=512,
         class_dropout=0.5,
-        negative_weight=0.1,
     ):
         """
         Wrapper class for the final classification model.
@@ -121,7 +120,13 @@ class ClassifierModel(tf.keras.Model):
         self.n_proposals = n_proposals
         self.dense_layers = dense_layers
         self.augmentation_params = augmentation_params
-        self.negative_weight = negative_weight
+
+        # Balance + and - examples in the training, keep a moving
+        # average of the last 100 regions
+        self._positive = tf.variable(0.0, trainable=False)
+        self.positive_ema = tf.train.ExponentialMovingAverage(decay=0.99)
+        self.positive_ema.apply([self._positive])
+
         # Network and optimizer
         self.classifier = Classifier(
             n_proposals,
@@ -202,6 +207,11 @@ class ClassifierModel(tf.keras.Model):
             tf.math.count_nonzero(IoUs, axis=0) > 0, tf.math.argmax(IoUs, axis=0), -1
         )
 
+        frac_positive = tf.cast(
+            tf.count_nonzero(tf.greater_equal(match, 0.0)), tf.float32
+        ) / tf.cast(match.shape[0], tf.flaot32)
+        self.positive_ema.apply([frac_positive])
+
         # First the regularization term, turned down to match what's in the RPN
         # This regularization is on the outputs of the classifier network, not weights
         # which is done implicitly by the SGDW optimizer
@@ -226,7 +236,7 @@ class ClassifierModel(tf.keras.Model):
                 )
                 loss += self.class_loss(cls_select, tf.constant([0.0, 1.0]))
             else:
-                loss += self.negative_weight * self.class_loss(
+                loss += self.frac_positive.average(self._positive) * self.class_loss(
                     cls_select, tf.constant([1.0, 0.0])
                 )
 
