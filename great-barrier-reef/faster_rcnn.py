@@ -295,8 +295,8 @@ class FasterRCNNWrapper:
 
             # Run dummy data through the network and then copy in weights
             assert os.path.exists(classifier_weights)
-            data = self.data_loader_full.get_training().__iter__().next()
-            features = self.backbone(data[0])
+            minibatch = self.data_loader_full.get_training().__iter__().next()
+            features = self.backbone(minibatch[0])
             features, roi = self.RoI_pool(
                 (
                     features,
@@ -306,6 +306,7 @@ class FasterRCNNWrapper:
                 )
             )
             self.classmodel.call((features, roi))
+            del minibatch
 
             self.classmodel.load_classifier_state(classifier_weights)
 

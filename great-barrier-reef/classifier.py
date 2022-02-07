@@ -166,8 +166,7 @@ class ClassifierModel(tf.keras.Model):
         self.classifier.set_weights(localmodel.get_weights())
         del localmodel
 
-    @tf.function
-    def _compute_loss(self, data):
+    def _compute_loss(data):
         """
         Compute the loss term for the full network.
         Works on one image at a time.
@@ -183,33 +182,25 @@ class ClassifierModel(tf.keras.Model):
         print("Python interpreter in classifier._compute_loss()")
 
         # No batch dimensions in this function, called with map_fn
-
-        # Unpack and cast RoI to float for later IoU calculations
         cls, bbox, roi, labels = data
 
         # Conver to image coordinates
         roi = tf.cast(roi, tf.float32)
-        x, y = self.backbone.feature_coords_to_image_coords(roi[:, 0], roi[:, 1])
-        w, h = self.backbone.feature_coords_to_image_coords(roi[:, 2], roi[:, 3])
+        x, y = frcnn.backbone.feature_coords_to_image_coords(roi[:, 0], roi[:, 1])
+        w, h = frcnn.backbone.feature_coords_to_image_coords(roi[:, 2], roi[:, 3])
         roi = tf.stack([x, y, w, h], axis=0)
 
-        # Figure out if there is a starfish or not
-        starfish = labels[tf.math.count_nonzero(labels, axis=1) > 0]
-
         def _calc_IoU(sf):
-            return geometry.calculate_IoU(sf, roi)  # returns (nroi,) tensor
+            return geometry.calculate_IoU(sf, roi)
 
-        IoUs = tf.map_fn(_calc_IoU, starfish)  # returns (nstarfish, nroi) tensor
+        # Build a (nstarfish, nroi) tensor of all the IoU values
+        IoUs = tf.map_fn(_calc_IoU, labels)
 
-        # For each starfish, grab the highest IoU roi
-        match = tf.math.argmax(IoUs, axis=1)  # returns (nstarfish, ) tensor
-
-        # Check if the match is a real max or the first of all zeros
-        check_match = tf.math.count_nonzero(IoUs, axis=1) > 0
-
-        # Set index to -1 for false matches. This won't equal any index in range(proposals),
-        # so -1 means "not in range" here rather than "last index"
-        match = tf.where(check_match, match, -1)
+        # For each starfish, grab the highest IoU roi or set to -1 if the IoUs are all zero
+        # Returns [n_roi,] tensor containing the index of the starfish if it is a + match
+        match = tf.where(
+            tf.math.count_nonzero(IoUs, axis=0) > 0, tf.math.argmax(IoUs, axis=0), -1
+        )
 
         # First the regularization term, turned down to match what's in the RPN
         # This regularization is on the outputs of the classifier network, not weights
@@ -217,30 +208,27 @@ class ClassifierModel(tf.keras.Model):
         loss = tf.nn.l2_loss(cls) / (100.0 * tf.size(cls, out_type=tf.float32))
         loss += tf.nn.l2_loss(bbox) / (10.0 * tf.size(bbox, out_type=tf.float32))
 
-        def _bbox_loss(idx):
-            k = tf.where(match == idx)
-            if tf.size(k) == 0:
-                return tf.constant(0.0, dtype=tf.float32)
-            truth_box = starfish[k[0, 0]]
-            t_x_star = (truth_box[0] - roi[0][idx]) / roi[2][idx]
-            t_y_star = (truth_box[1] - roi[1][idx]) / roi[3][idx]
-            t_w_star = geometry.safe_log(truth_box[2] / roi[2][idx])
-            t_h_star = geometry.safe_log(truth_box[3] / roi[3][idx])
-            return self.bbox_reg_l1(
-                [t_x_star, t_y_star, t_w_star, t_h_star],
-                bbox[idx :: self.n_proposals],
-            )
+        for i in tf.range(frcnn.classmodel.n_proposals, dtype=tf.int64):
 
-        for i in tf.range(self.n_proposals, dtype=tf.int64):
-            positive = tf.reduce_any(tf.math.equal(i, match))
-            cls_select = tf.nn.softmax(cls[i :: self.n_proposals])
-            if positive:
-                ground_truth = tf.constant([0.0, 1.0])
-                loss += _bbox_loss(i)
-                loss += self.class_loss(cls_select, ground_truth)
+            # Classification score
+            cls_select = tf.nn.softmax(cls[i :: frcnn.classmodel.n_proposals])
+
+            # Found a real starfish
+            if match[i] > 0:
+                truth_box = labels[match[i], :]
+                t_x_star = (truth_box[0] - roi[0, i]) / roi[2, i]
+                t_y_star = (truth_box[1] - roi[1, i]) / roi[3, i]
+                t_w_star = geometry.safe_log(truth_box[2] / roi[2, i])
+                t_h_star = geometry.safe_log(truth_box[3] / roi[3, i])
+                loss += frcnn.classmodel.bbox_reg_l1(
+                    [t_x_star, t_y_star, t_w_star, t_h_star],
+                    bbox[i :: frcnn.classmodel.n_proposals],
+                )
+                loss += frcnn.classmodel.class_loss(cls_select, tf.constant([0.0, 1.0]))
             else:
-                ground_truth = tf.constant([1.0, 0.0])
-                loss += self.negative_weight * self.class_loss(cls_select, ground_truth)
+                loss += frcnn.classmodel.negative_weight * frcnn.classmodel.class_loss(
+                    cls_select, tf.constant([1.0, 0.0])
+                )
 
         return loss
 
@@ -257,13 +245,8 @@ class ClassifierModel(tf.keras.Model):
 
         """
 
-        # Run the data augmentation
-        data_aug = self.augmentation(data[0])
-
-        # Run the feature extractor
-        features = self.backbone(data_aug)
-
-        # Accumulate RoI data
+        # Run the data augmentation and feature extractor
+        features = self.backbone(self.augmentation(data[0]))
         labels = self.label_decoder(data[1])
 
         # Loop over images accumulating RoI proposals
@@ -317,8 +300,6 @@ class ClassifierModel(tf.keras.Model):
 
         # Run the feature extractor
         features = self.backbone(data[0])
-
-        # Accumulate RoI data
         labels = self.label_decoder(data[1])
 
         # Loop over images accumulating RoI proposals
@@ -347,7 +328,7 @@ class ClassifierModel(tf.keras.Model):
     @tf.function
     def call(self, data):
         """
-        Run the final prediction to map
+        Run the final prediction and return map coordinates.
 
         data : (tf.tensor, tf.tensor)
             Pooled features and  roi for this minibatch.
