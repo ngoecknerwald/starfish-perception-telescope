@@ -50,6 +50,8 @@ class Classifier(tf.keras.layers.Layer):
         self.bbox = tf.keras.layers.Dense(n_proposals * 4)
         if self.dropout is not None:
             self.dropout1 = tf.keras.layers.Dropout(self.dropout)
+        self.outputs = None
+
 
     def call(self, x, training=False):
 
