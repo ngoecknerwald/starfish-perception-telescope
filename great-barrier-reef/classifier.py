@@ -208,10 +208,10 @@ class ClassifierModel(tf.keras.Model):
         loss = tf.nn.l2_loss(cls) / (100.0 * tf.size(cls, out_type=tf.float32))
         loss += tf.nn.l2_loss(bbox) / (10.0 * tf.size(bbox, out_type=tf.float32))
 
-        for i in tf.range(frcnn.classmodel.n_proposals, dtype=tf.int64):
+        for i in tf.range(self.n_proposals, dtype=tf.int64):
 
             # Classification score
-            cls_select = tf.nn.softmax(cls[i :: frcnn.classmodel.n_proposals])
+            cls_select = tf.nn.softmax(cls[i :: self.n_proposals])
 
             # Found a real starfish
             if match[i] > 0:
@@ -220,13 +220,13 @@ class ClassifierModel(tf.keras.Model):
                 t_y_star = (truth_box[1] - roi[1, i]) / roi[3, i]
                 t_w_star = geometry.safe_log(truth_box[2] / roi[2, i])
                 t_h_star = geometry.safe_log(truth_box[3] / roi[3, i])
-                loss += frcnn.classmodel.bbox_reg_l1(
+                loss += self.bbox_reg_l1(
                     [t_x_star, t_y_star, t_w_star, t_h_star],
-                    bbox[i :: frcnn.classmodel.n_proposals],
+                    bbox[i :: self.n_proposals],
                 )
-                loss += frcnn.classmodel.class_loss(cls_select, tf.constant([0.0, 1.0]))
+                loss += self.class_loss(cls_select, tf.constant([0.0, 1.0]))
             else:
-                loss += frcnn.classmodel.negative_weight * frcnn.classmodel.class_loss(
+                loss += self.negative_weight * self.class_loss(
                     cls_select, tf.constant([1.0, 0.0])
                 )
 
