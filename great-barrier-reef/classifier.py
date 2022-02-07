@@ -75,6 +75,7 @@ class ClassifierModel(tf.keras.Model):
         augmentation_params,
         dense_layers=512,
         class_dropout=0.5,
+        negative_weight=0.1, 
     ):
         """
         Wrapper class for the final classification model.
@@ -93,6 +94,8 @@ class ClassifierModel(tf.keras.Model):
             Learning rate when tuning only the classification layers.
         class_dropout : float between 0 and 1
             Dropout parameter to use when training the classification layers.
+        negative weight : float
+            Relative weight of negative RoIs. Multiplies the classification loss. 
         """
 
         super().__init__()
@@ -105,7 +108,7 @@ class ClassifierModel(tf.keras.Model):
         self.n_proposals = n_proposals
         self.dense_layers = dense_layers
         self.augmentation_params = augmentation_params
-
+        self.negative_weight = negative_weight
         # Network and optimizer
         self.classifier = Classifier(
             n_proposals,
@@ -215,13 +218,14 @@ class ClassifierModel(tf.keras.Model):
 
         for i in tf.range(self.n_proposals, dtype=tf.int64):
             positive = tf.reduce_any(tf.math.equal(i, match))
+            cls_select = tf.nn.softmax(cls[i :: self.n_proposals])
             if positive:
                 ground_truth = tf.constant([0.0, 1.0])
                 loss += _bbox_loss(i)
+                loss += self.class_loss(cls_select, ground_truth)
             else:
                 ground_truth = tf.constant([1.0, 0.0])
-            cls_select = tf.nn.softmax(cls[i :: self.n_proposals])
-            loss += self.class_loss(cls_select, ground_truth)
+                loss += self.negative_weight * self.class_loss(cls_select, ground_truth)
 
         return loss
 
