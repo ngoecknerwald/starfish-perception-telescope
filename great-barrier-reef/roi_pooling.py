@@ -78,7 +78,7 @@ class RoIPooling(tf.keras.layers.Layer):
 
         # Use map_fn to iterate over images
         pooled_areas = tf.map_fn(
-            self._pool_rois, (features, roi_clipped), dtype=tf.float32
+            self._pool_rois, (features, roi_clipped), fn_output_signature=tf.float32
         )
 
         return pooled_areas, roi_clipped
@@ -228,7 +228,9 @@ class RoIPooling(tf.keras.layers.Layer):
 
         # Use map_fn to iterate over RoI
         return tf.map_fn(
-            partial(self._pool_roi, feature_map=feature_map), rois, dtype=tf.float32
+            partial(self._pool_roi, feature_map=feature_map),
+            rois,
+            fn_output_signature=tf.float32,
         )
 
     @tf.function

@@ -63,6 +63,18 @@ class Classifier(tf.keras.layers.Layer):
         bbox = self.bbox(x)
         return cls, bbox
 
+    def get_config(self):
+        return {
+            "n_proposals": self.n_proposals,
+            "dense_layers": self.dense_layers,
+            "n_classes": self.n_classes,
+            "dropout": self.dropout,
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
 
 class ClassifierModel(tf.keras.Model):
     def __init__(
@@ -75,7 +87,7 @@ class ClassifierModel(tf.keras.Model):
         augmentation_params,
         dense_layers=512,
         class_dropout=0.5,
-        negative_weight=0.1, 
+        negative_weight=0.1,
     ):
         """
         Wrapper class for the final classification model.
@@ -95,7 +107,7 @@ class ClassifierModel(tf.keras.Model):
         class_dropout : float between 0 and 1
             Dropout parameter to use when training the classification layers.
         negative weight : float
-            Relative weight of negative RoIs. Multiplies the classification loss. 
+            Relative weight of negative RoIs. Multiplies the classification loss.
         """
 
         super().__init__()
@@ -149,7 +161,9 @@ class ClassifierModel(tf.keras.Model):
             Load path for the classifier.
         """
 
-        self.classifier = tf.keras.models.load_model(filename)
+        localmodel = tf.keras.models.load_model(filename)
+        self.classifier.set_weights(localmodel.get_weights())
+        del localmodel
 
     @tf.function
     def _compute_loss(self, data):
