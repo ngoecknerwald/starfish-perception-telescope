@@ -166,7 +166,7 @@ class ClassifierModel(tf.keras.Model):
         self.classifier.set_weights(localmodel.get_weights())
         del localmodel
 
-    def _compute_loss(data):
+    def _compute_loss(self, data):
         """
         Compute the loss term for the full network.
         Works on one image at a time.
@@ -186,8 +186,8 @@ class ClassifierModel(tf.keras.Model):
 
         # Conver to image coordinates
         roi = tf.cast(roi, tf.float32)
-        x, y = frcnn.backbone.feature_coords_to_image_coords(roi[:, 0], roi[:, 1])
-        w, h = frcnn.backbone.feature_coords_to_image_coords(roi[:, 2], roi[:, 3])
+        x, y = self.backbone.feature_coords_to_image_coords(roi[:, 0], roi[:, 1])
+        w, h = self.backbone.feature_coords_to_image_coords(roi[:, 2], roi[:, 3])
         roi = tf.stack([x, y, w, h], axis=0)
 
         def _calc_IoU(sf):
