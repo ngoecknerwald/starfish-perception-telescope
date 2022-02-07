@@ -296,14 +296,14 @@ class FasterRCNNWrapper:
             # Run dummy data through the network and then copy in weights
             assert os.path.exists(classifier_weights)
             data = self.data_loader_full.get_training().__iter__().next()
-            features=self.backbone(data[0])
+            features = self.backbone(data[0])
             features, roi = self.RoI_pool(
-            (
-                features,
-                self.rpnwrapper.propose_regions(
-                    features, input_images=False, output_images=False
-                ),
-            )
+                (
+                    features,
+                    self.rpnwrapper.propose_regions(
+                        features, input_images=False, output_images=False
+                    ),
+                )
             )
             self.classmodel.call((features, roi))
 
@@ -315,11 +315,11 @@ class FasterRCNNWrapper:
                 optimizer=self.optimizer, metrics=self.validation_f2s
             )
 
-            #self.classmodel.fit(
-            #    self.data_loader_full.get_training(),
-            #    epochs=epochs,
-            #    validation_data=self.data_loader_full.get_validation(),
-            #)
+            self.classmodel.fit(
+                self.data_loader_full.get_training(),
+                epochs=epochs,
+                validation_data=self.data_loader_full.get_validation(),
+            )
 
     # TODO: make this function compatible with the new classifier architecture
     # def predict(self, image, return_dict=False):

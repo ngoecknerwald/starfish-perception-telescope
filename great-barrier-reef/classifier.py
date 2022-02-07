@@ -52,7 +52,6 @@ class Classifier(tf.keras.layers.Layer):
             self.dropout1 = tf.keras.layers.Dropout(self.dropout)
         self.outputs = None
 
-
     def call(self, x, training=False):
 
         print("Python interpreter in Classifier.call()")
