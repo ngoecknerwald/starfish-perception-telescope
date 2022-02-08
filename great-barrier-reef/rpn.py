@@ -756,7 +756,7 @@ class RPNWrapper:
             top_n_recall, label_decoder, name="top%d_recall" % top_n_recall
         )
 
-    def train_rpn(self, train_dataset, valid_dataset=None, epochs=6, kwargs={}):
+    def train_rpn(self, train_dataset, valid_dataset=None, epochs=9, kwargs={}):
         """
         Main training loop iterating over a dataset.
 

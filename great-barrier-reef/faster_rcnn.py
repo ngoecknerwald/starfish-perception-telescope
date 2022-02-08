@@ -287,7 +287,7 @@ class FasterRCNNWrapper:
         """
 
         # Number of epochs to train the classifier network
-        epochs = classifier_kwargs.pop("epochs", 5)
+        epochs = classifier_kwargs.pop("epochs", 9)
 
         # Note that this is associated with self.backbone whereas
         # the rpn is associated with self.backbone_rpn
