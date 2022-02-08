@@ -747,9 +747,7 @@ class RPNWrapper:
             clipvalue=self.clipvalue,
         )
 
-        self.callbacks = [
-            callback.LearningRateCallback(self.learning_rate, self.weight_decay)
-        ]
+        self.callbacks = [callback.LearningRateCallback(learning_rate, weight_decay)]
 
         # Recall metric for the RPN
         self.validation_recall = evaluation.TopNRegionsRecall(

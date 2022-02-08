@@ -19,7 +19,7 @@ class TopNRegionsRecall(tf.keras.metrics.Metric):
 
     """
 
-    def __init__(self, N, label_decoder, name="recall" ** kwargs):
+    def __init__(self, N, label_decoder, name="recall", **kwargs):
         super().__init__(**kwargs)
         self.N = N
         self.recalls = self.add_weight(name=name, initializer="zeros")

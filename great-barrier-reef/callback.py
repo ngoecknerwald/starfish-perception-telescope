@@ -15,19 +15,19 @@ class LearningRateCallback(tf.keras.callbacks.Callback):
 
         """
 
-        super(CustomLearningRateScheduler, self).__init__()
+        super().__init__()
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
 
     # Learning rate callback
-    def lr_schedule(epoch):
+    def lr_schedule(self, epoch):
         for i, _epoch in self.learning_rate["epochs"][::-1]:
             if _epoch <= epoch:
                 return self.learning_rate["values"][i]
         return self.learning_rate["values"][0]
 
     # Weight decay callback
-    def wd_schedule(epoch):
+    def wd_schedule(self, epoch):
         for i, _epoch in self.weight_decay["epochs"][::-1]:
             if _epoch <= epoch:
                 return self.weight_decay["values"][i]
