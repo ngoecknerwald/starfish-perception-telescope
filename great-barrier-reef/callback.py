@@ -39,10 +39,16 @@ class LearningRateCallback(tf.keras.callbacks.Callback):
 
     def on_epoch_begin(self, epoch, logs=None):
 
-        _lr = self.lr_schedule(epoch)
-        _wd = self.wd_schedule(epoch)
+        # The epoch number empirically seems to be from the previous pass?
+        local_epoch = epoch + 1
+
+        _lr = self.lr_schedule(local_epoch)
+        _wd = self.wd_schedule(local_epoch)
 
         tf.keras.backend.set_value(self.model.optimizer.learning_rate, _lr)
         tf.keras.backend.set_value(self.model.optimizer.weight_decay, _wd)
 
-        print("\nEpoch %d: learning_rate=%.5f weight_decay=%.7f " % (epoch, _lr, _wd))
+        print(
+            "\nEpoch %d: learning_rate=%.5f weight_decay=%.7f "
+            % (local_epoch, _lr, _wd)
+        )
