@@ -164,7 +164,7 @@ def compute_recall_score(proposal, label, ignore, thresholds):
         0.0,
     ] * len(thresholds)
     false_neg = [
-        1.0,
+        0.0,
     ] * len(thresholds)
 
     for ithreshold, threshold in enumerate(thresholds):
