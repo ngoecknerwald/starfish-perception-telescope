@@ -1,7 +1,7 @@
 # High-level class for the full Faster R-CNN network.
 import tensorflow as tf
 import tensorflow_addons as tfa
-import backbone, classifier, data_utils, roi_pooling, rpn, evaluation
+import backbone, classifier, data_utils, roi_pooling, rpn, evaluation, callback
 import os
 
 
@@ -19,14 +19,14 @@ class FasterRCNNWrapper:
         roi_kwargs={},
         classifier_weights=None,
         classifier_kwargs={},
-        classifier_learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[10000, 20000],
-            values=[1e-3, 1e-4, 1e-5],
-        ),
-        classifier_weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[10000, 20000],
-            values=[1e-5, 1e-6, 1e-7],
-        ),
+        classifier_learning_rate={
+            "epochs": [0, 3, 6],
+            "values": [1e-3, 1e-4, 1e-5],
+        },
+        classifier_weight_decay={
+            "epochs": [0, 3, 6],
+            "values": [1e-5, 1e-6, 1e-7],
+        },
         classifier_momentum=0.9,
         classifier_clipvalue=1e1,
         classifier_augmentation={
@@ -71,10 +71,10 @@ class FasterRCNNWrapper:
             Saved weights for the final classification network.
         classifier_kwargs : dict
             Optional keyword arguments passed to the Classifier wrapper.
-        classifier_learning_rate : float or tf.keras.optimizers.schedules
-            Learning rate for the classifier SDGW optimizer.
-        classifier_weight_decay : float or tf.keras.optimizers.schedules
-            Weight decay for the classifier SGDW optimizer.
+        classifier_learning_rate : dict
+            {'epoch' : list of epoch number, 'rate' : list of learning rates}
+        classifier_weight_decay : dict
+            {'epoch' : list of epoch number, 'rate' : list of decay rates}
         classifier_momentum : float
             Momentum parameter for the SGDW optimizer.
         classifier_clipvalue : float
@@ -106,11 +106,15 @@ class FasterRCNNWrapper:
 
         # Optimizer for the intitial classifier training
         self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=classifier_learning_rate,
-            weight_decay=classifier_weight_decay,
+            learning_rate=classifier_learning_rate["values"][0],
+            weight_decay=classifier_weight_decay["values"][0],
             momentum=classifier_momentum,
             clipvalue=classifier_clipvalue,
         )
+
+        self.callbacks = [
+            callback.LearningRateCallback(classifier_learning_rate, classifier_weight_decay)
+        ]
 
         # Metric to assess classifier performance and set the final
         # threshold on the test set based on on the F2 scores on the validation set
@@ -320,6 +324,7 @@ class FasterRCNNWrapper:
                 self.data_loader_full.get_training(),
                 epochs=epochs,
                 validation_data=self.data_loader_full.get_validation(),
+                callbacks=self.callbacks,
             )
 
     def predict(self, images, return_mode="string"):

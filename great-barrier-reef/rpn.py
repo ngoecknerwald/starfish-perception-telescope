@@ -6,8 +6,7 @@
 import tensorflow as tf
 import tensorflow_addons as tfa
 import numpy as np
-import geometry
-import evaluation
+import geometry, evaluation, callback
 
 
 class RPNLayer(tf.keras.layers.Layer):
@@ -662,14 +661,14 @@ class RPNWrapper:
         n_roi_output=128,
         IoU_neg_threshold=0.01,
         rpn_dropout=0.5,
-        learning_rate=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[10000, 20000],
-            values=[1e-3, 1e-4, 1e-5],
-        ),
-        weight_decay=tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-            boundaries=[10000, 20000],
-            values=[1e-5, 1e-6, 1e-7],
-        ),
+        learning_rate={
+            "epochs": [0, 3, 6],
+            "values": [1e-3, 1e-4, 1e-5],
+        },
+        weight_decay={
+            "epochs": [0, 3, 6],
+            "values": [1e-5, 1e-6, 1e-7],
+        },
         momentum=0.9,
         clipvalue=1e2,
         top_n_f2=10,
@@ -707,10 +706,10 @@ class RPNWrapper:
             floating point error.
         rpn_dropout : float or None
             Add dropout to the RPN with this fraction. Pass None to skip.
-        learning_rate : float or tf.keras.optimizers.schedules
-            Learning rate for the SDGW optimizer.
-        weight_decay : float or tf.keras.optimizers.schedules
-            Weight decay for the optimizer.
+        learning_rate : dict
+            {'epoch' : list of epoch number, 'rate' : list of learning rates}
+        weight_decay : dict
+            {'epoch' : list of epoch number, 'rate' : list of decay rates}
         momentum : float
             Momentum parameter for the SGDW optimizer.
         clipvalue : float
@@ -739,18 +738,20 @@ class RPNWrapper:
         )
 
         # Optimizer parameters
-        self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
         self.momentum = momentum
         self.clipvalue = clipvalue
 
         # Optimizer
         self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=self.learning_rate,
-            weight_decay=self.weight_decay,
+            learning_rate=learning_rate["values"][0],
+            weight_decay=weight_decay["values"][0],
             momentum=self.momentum,
             clipvalue=self.clipvalue,
         )
+
+        self.callbacks = [
+            callback.LearningRateCallback(self.learning_rate, self.weight_decay)
+        ]
 
         # F2 metric for the RPN, have it look at all positive
         # regions so pass N=None
@@ -777,7 +778,11 @@ class RPNWrapper:
             ],
         )
         self.rpnmodel.fit(
-            train_dataset, epochs=epochs, validation_data=valid_dataset, **kwargs
+            train_dataset,
+            epochs=epochs,
+            validation_data=valid_dataset,
+            callbacks=self.callbacks,
+            **kwargs
         )
 
     def save_rpn_state(self, filename):
