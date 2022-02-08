@@ -125,7 +125,7 @@ class Backbone(tf.keras.layers.Layer):
         training_data,
         validation_data=None,
         optimizer="adam",
-        epochs=[2, 10],
+        epochs=[2, 4],
         learning_rates=[1e-3, 1e-5],
         optimizer_kwargs={},
         fit_kwargs={},
