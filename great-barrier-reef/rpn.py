@@ -54,7 +54,6 @@ class RPNLayer(tf.keras.layers.Layer):
 
     def call(self, x, training=False):
 
-        print("Python interpreter in RPNLayer.call()")
 
         x = self.conv1(x)
         if hasattr(self, "dropout1") and training:
@@ -181,7 +180,6 @@ class RPNModel(tf.keras.Model):
 
         """
 
-        print("Python interpreter in RPNModel.test_step()")
 
         # Run the feature extractor
         features = self.backbone(data[0])
@@ -226,7 +224,6 @@ class RPNModel(tf.keras.Model):
 
         """
 
-        print("Python interpreter in RPNModel.train_step()")
 
         # Run the data augmentation
         data_aug = self.augmentation(data[0])
@@ -306,7 +303,6 @@ class RPNModel(tf.keras.Model):
             coordinates (x,y,w,h)
         """
 
-        print("Python interpreter in RPNModel.call()")
 
         # Run through the extractor if images
         if input_images:
@@ -398,7 +394,6 @@ class RPNModel(tf.keras.Model):
             or (0.,0.,0.,0.) if the RoI is not associated with any ground truth.
         """
 
-        print("Python interpreter in RPNModel._accumulate_roi()")
 
         rois = []
 
@@ -484,7 +479,6 @@ class RPNModel(tf.keras.Model):
             Output of accumulate_roi(), see training_step for use case.
         """
 
-        print("Python interpreter in RPNModel._compute_loss()")
 
         cls, bbox, rois = data
 
@@ -563,7 +557,6 @@ class RPNModel(tf.keras.Model):
 
         """
 
-        print("Python interpreter in RPNModel._build_anchor_boxes()")
 
         # Make the list of window sizes
         hh, ww = np.meshgrid(self.window_sizes, self.window_sizes)
@@ -632,7 +625,6 @@ class RPNModel(tf.keras.Model):
 
         """
 
-        print("Python interpreter in rpnwrapper.ground_truth_IoU")
 
         # Coordinates and area of the proposed region
         x, y = self.backbone.feature_coords_to_image_coords(xx, yy)

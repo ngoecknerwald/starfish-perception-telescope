@@ -170,7 +170,6 @@ class DataLoaderFull(DataLoader):
 
         """
 
-        print("Python interpreter in DataLoader.decode_label()")
 
         return tf.gather(self.label_tensor, label)
 

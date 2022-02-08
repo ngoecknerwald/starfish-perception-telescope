@@ -56,7 +56,6 @@ class Backbone(tf.keras.layers.Layer):
             Pixel corrdinate in the feature map.
         """
 
-        print("Python interpreter in backbone.feature_coords_to_image_coords()")
 
         return (
             xx * self._input_shape[1] / self._output_shape[1],
@@ -76,7 +75,6 @@ class Backbone(tf.keras.layers.Layer):
             Pixel corrdinate in the image map.
         """
 
-        print("Python interpreter in backbone.image_coords_to_feature_coords()")
 
         return (
             x * self._output_shape[1] / self._input_shape[1],

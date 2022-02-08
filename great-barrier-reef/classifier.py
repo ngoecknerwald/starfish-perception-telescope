@@ -60,7 +60,6 @@ class Classifier(tf.keras.layers.Layer):
 
     def call(self, x, training=False):
 
-        print("Python interpreter in Classifier.call()")
 
         x = self.conv1(x)
         x = self.flatten(x)
@@ -188,7 +187,6 @@ class ClassifierModel(tf.keras.Model):
 
         """
 
-        print("Python interpreter in classifier._compute_loss()")
 
         # No batch dimensions in this function, called with map_fn
         cls, bbox, roi, labels = data

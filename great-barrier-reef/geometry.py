@@ -23,7 +23,6 @@ def calculate_IoU(a, b):
 
     """
 
-    print("Python interpreter in geometry.calculate_Iou()")
 
     intersect = tf.math.maximum(
         0.0,
@@ -55,7 +54,6 @@ def safe_exp(x):
 
     """
 
-    print("Python interpreter in geometry.safe_exp()")
 
     return tf.nn.elu(x) + 1.0
 
@@ -75,7 +73,6 @@ def safe_log(x):
 
     """
 
-    print("Python interpreter in geometry.safe_log()")
 
     if x < 1.0:
         return tf.math.log(x)
@@ -90,7 +87,6 @@ def batch_sort(arr, inds, n):
     Note that this rebuilds a computation graph when n changes.
     """
 
-    print("Python interpreter in geometry.batch_sort()")
     assert len(tf.shape(arr)) == 2
 
     return tf.gather(arr, inds, batch_dims=1)[:, :n]
