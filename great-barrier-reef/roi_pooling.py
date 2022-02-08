@@ -73,12 +73,12 @@ class RoIPooling(tf.keras.layers.Layer):
         features, roi = data
 
         # Deduplicate and clip the input RoI
-        roi_nms = tf.map_fn(self._IoU_suppression, roi)
-        roi_clipped = self._clip_RoI(roi_nms)
+        roi_clipped = self._clip_RoI(roi)
+        roi_nms = tf.map_fn(self._IoU_suppression, roi_clipped)
 
         # Use map_fn to iterate over images
         pooled_areas = tf.map_fn(
-            self._pool_rois, (features, roi_clipped), fn_output_signature=tf.float32
+            self._pool_rois, (features, roi_nms), fn_output_signature=tf.float32
         )
 
         return pooled_areas, roi_clipped
