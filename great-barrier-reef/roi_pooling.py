@@ -111,7 +111,8 @@ class RoIPooling(tf.keras.layers.Layer):
 
         # TF NMS takes arguments (y1,x1,y2,x2)
         x, y, w, h = tf.unstack(roi, axis=-1)
-        roi_prime = tf.stack([y, x, y + h, x + w], axis=-1)
+        roi_prime = tf.cast(tf.stack([y, x, y + h, x + w], axis=-1), tf.float32)
+
 
         nms = tf.image.non_max_suppression(
             roi_prime, scores, self.n_regions, self.IoU_threshold
