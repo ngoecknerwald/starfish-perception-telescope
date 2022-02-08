@@ -31,7 +31,7 @@ class LearningRateCallback(tf.keras.callbacks.Callback):
     # Weight decay callback
     def wd_schedule(self, epoch):
         for _epoch, _value in zip(
-            self.weight_decay["epochs"][::-1], self.learning_rate["values"][::-1]
+            self.weight_decay["epochs"][::-1], self.weight_decay["values"][::-1]
         ):
             if _epoch <= epoch:
                 return _value
