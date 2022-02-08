@@ -165,6 +165,11 @@ class RPNModel(tf.keras.Model):
             ]
         )
 
+        # Same thing as the classifier, accumulate a running average of the fraction
+        # of examples that are + and use that to reweight the negative examples.
+        # Assume we'll use O(10) minibatch samples per image, this will quickly adjust
+        self._positive = tf.Variable(0.1, trainable=False)
+
     @tf.function
     def test_step(self, data):
         """
@@ -189,10 +194,13 @@ class RPNModel(tf.keras.Model):
         # Call the RPN
         cls, bbox = self.rpn(features, training=False)
 
+        def _local_loss(data):
+            return self._compute_loss(data, update_positive_weight=False)
+
         # Compute the loss using the classification scores and bounding boxes
         loss = tf.reduce_sum(
             tf.map_fn(
-                self._compute_loss,
+                _local_loss,
                 [cls, bbox, rois],
                 fn_output_signature=(tf.float32),
             )
@@ -233,6 +241,9 @@ class RPNModel(tf.keras.Model):
         # Loop over images accumulating RoI proposals
         rois = tf.map_fn(self._accumulate_roi, labels)
 
+        def _local_loss(data):
+            return self._compute_loss(data, update_positive_weight=True)
+
         # Compute loss
         with tf.GradientTape() as tape:
 
@@ -242,7 +253,7 @@ class RPNModel(tf.keras.Model):
             # Compute the loss using the classification scores and bounding boxes
             loss = tf.reduce_sum(
                 tf.map_fn(
-                    self._compute_loss,
+                    _local_loss,
                     [cls, bbox, rois],
                     fn_output_signature=(tf.float32),
                 )
@@ -454,7 +465,7 @@ class RPNModel(tf.keras.Model):
         return tf.convert_to_tensor(rois)
 
     @tf.function
-    def _compute_loss(self, data):
+    def _compute_loss(self, data, update_positive_weight=False):
 
         """
         Compute the loss function for a set of classification
@@ -487,6 +498,9 @@ class RPNModel(tf.keras.Model):
         loss = tf.nn.l2_loss(cls) / (100.0 * tf.size(cls, out_type=tf.float32))
         loss += tf.nn.l2_loss(bbox) / (10.0 * tf.size(bbox, out_type=tf.float32))
 
+        # Count how many positive valid boxes we have
+        n_positive = 0.0
+
         # Work one RoI at a time
         for i in range(self.roi_minibatch_per_image):
 
@@ -505,15 +519,11 @@ class RPNModel(tf.keras.Model):
                 # First, compute the categorical cross entropy objectness loss
                 cls_select = tf.nn.softmax(cls[iyy, ixx, ik :: self.k])
 
-                if positive:
-                    ground_truth = tf.constant([0.0, 1.0])
-                else:
-                    ground_truth = tf.constant([1.0, 0.0])
-
-                loss += self.objectness(ground_truth, cls_select)
-
                 # Compare anchor to ground truth
                 if positive:
+
+                    ground_truth = tf.constant([0.0, 1.0])
+                    loss += self.objectness(ground_truth, cls_select)
 
                     # Refer the corners of the bounding box back to image space
                     # Note that this assumes said mapping is linear.
@@ -536,6 +546,17 @@ class RPNModel(tf.keras.Model):
                         [t_x_star, t_y_star, t_w_star, t_h_star],
                         bbox[iyy, ixx, ik :: self.k],
                     )
+
+                    n_positive += 1.0
+
+                else:
+                    ground_truth = tf.constant([1.0, 0.0])
+                    loss += self._positive * self.objectness(ground_truth, cls_select)
+
+        # Exponential moving average update
+        if update_positive_weight:
+            frac_positive = n_positive / tf.reduce_sum(rois[:, 3])
+            self._positive.assign_add(0.01 * (frac_positive - self._positive))
 
         return loss
 
@@ -637,7 +658,7 @@ class RPNWrapper:
         anchor_stride=1,
         window_sizes=[2.0, 4.0],
         filters=1024,
-        roi_minibatch_per_image=6,
+        roi_minibatch_per_image=16,  # This captures basically all of the positive examples
         n_roi_output=128,
         IoU_neg_threshold=0.01,
         rpn_dropout=0.5,
