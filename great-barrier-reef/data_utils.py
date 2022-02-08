@@ -90,7 +90,7 @@ class DataLoaderFull(DataLoader):
         ]
         self.ifile = list(np.argsort(filenames))
 
-    def _load_dataset(self, batch_size=4, validation_split=0.99, shuffle=True):
+    def _load_dataset(self, batch_size=4, validation_split=0.2, shuffle=True):
         """
         Internal method to load the dataset from the input files. Does nothing
         if the dataset has already been loaded with the same parameters.
@@ -155,7 +155,7 @@ class DataLoaderFull(DataLoader):
         if not hasattr(self, "validation"):
             self._load_dataset(**kwargs)
 
-        return None
+        return self.validation
 
     @tf.function
     def decode_label(self, label):

@@ -36,6 +36,7 @@ class FasterRCNNWrapper:
             "contrast": 0.25,
         },
         validation_recall_thresholds=[0.1, 0.25, 0.5, 0.75, 0.9],
+        debug = False,
     ):
 
         """
@@ -83,12 +84,15 @@ class FasterRCNNWrapper:
             Parameters to pass to the augmentation segment when training. The Gaussian noise augmentation
             and contrast are copied over from the backbone fine tuning. The translation and rotation
             should be small enough to not meaningfully break the matching of RoI to the ground truth boxes.
+        debug : bool
+            Run in debug mode - on 1% of data with no validation set. 
         """
 
         # Record for posterity
         self.input_shape = input_shape
         self.n_proposals = n_proposals
         self.positive_threshold = positive_threshold
+        self.debug = debug
 
         # Instantiate data loading class
         self.instantiate_data_loaders(
@@ -146,7 +150,9 @@ class FasterRCNNWrapper:
             Also create the thumbnails for backbone pretraining.
         """
 
-        self.data_loader_full = data_utils.DataLoaderFull(input_file=datapath)
+        data_kwargs = {} if not self.debug else {'validation_split': 0.99}
+
+        self.data_loader_full = data_utils.DataLoaderFull(input_file=datapath, **data_kwargs)
 
         if do_thumbnail:
             self.data_loader_thumb = data_utils.DataLoaderThumbnail(input_file=datapath)
@@ -245,7 +251,7 @@ class FasterRCNNWrapper:
 
             self.rpnwrapper.train_rpn(
                 self.data_loader_full.get_training(),
-                valid_dataset=self.data_loader_full.get_validation(),
+                valid_dataset=self.data_loader_full.get_validation() if not self.debug else None,
             )
 
     def instantiate_RoI_pool(self, roi_kwargs):
@@ -329,7 +335,7 @@ class FasterRCNNWrapper:
             self.classmodel.fit(
                 self.data_loader_full.get_training(),
                 epochs=epochs,
-                validation_data=self.data_loader_full.get_validation(),
+                validation_data=self.data_loader_full.get_validation() if not self.debug else None,
                 callbacks=self.callbacks,
             )
 
