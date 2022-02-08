@@ -293,10 +293,8 @@ class RPNModel(tf.keras.Model):
             Set of image(s) or feature(s) to run through the network.
         input_images : bool
             Set to true to run the input through the backbone.
-            Default value required to make the validation set F2 score work.
         output_images : bool
             Return regions in image coordinates, otherwise work entirely in feature space.
-            Default value required to make the validation set F2 score work.
 
         Returns:
 
@@ -671,7 +669,7 @@ class RPNWrapper:
         },
         momentum=0.9,
         clipvalue=1e2,
-        top_n_f2=10,
+        top_n_recall=32,
         training_params={
             "zoom": 0.01,
             "rotation": 0.01,
@@ -714,8 +712,8 @@ class RPNWrapper:
             Momentum parameter for the SGDW optimizer.
         clipvalue : float
             Maximum allowable gradient for the SGDW optimizer.
-        top_n_f2 : int
-            Number of regions to consider when computing the F2 score for the training / validation set.
+        top_n_recall : int
+            Number of regions to consider when computing the recall score for the training / validation set.
         training_params : dict
             Parameters to pass to the augmentation segment when training. The Gaussian noise augmentation
             and contrast are copied over from the backbone fine tuning. The translation and rotation
@@ -753,9 +751,10 @@ class RPNWrapper:
             callback.LearningRateCallback(self.learning_rate, self.weight_decay)
         ]
 
-        # F2 metric for the RPN, have it look at all positive
-        # regions so pass N=None
-        self.validation_f2 = evaluation.TopNRegionsF2(top_n_f2, label_decoder)
+        # Recall metric for the RPN
+        self.validation_recall = evaluation.TopNRegionsRecall(
+            top_n_recall, label_decoder, name="top%d_recall" % top_n_recall
+        )
 
     def train_rpn(self, train_dataset, valid_dataset=None, epochs=6, kwargs={}):
         """
@@ -774,7 +773,7 @@ class RPNWrapper:
         self.rpnmodel.compile(
             optimizer=self.optimizer,
             metrics=[
-                self.validation_f2,
+                self.validation_recall,
             ],
         )
         self.rpnmodel.fit(

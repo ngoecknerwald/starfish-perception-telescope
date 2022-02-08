@@ -35,7 +35,7 @@ class FasterRCNNWrapper:
             "gaussian": 5.0,
             "contrast": 0.25,
         },
-        validation_f2_thresholds=[0.1, 0.25, 0.5, 0.75, 0.9],
+        validation_recall_thresholds=[0.1, 0.25, 0.5, 0.75, 0.9],
     ):
 
         """
@@ -113,14 +113,20 @@ class FasterRCNNWrapper:
         )
 
         self.callbacks = [
-            callback.LearningRateCallback(classifier_learning_rate, classifier_weight_decay)
+            callback.LearningRateCallback(
+                classifier_learning_rate, classifier_weight_decay
+            )
         ]
 
         # Metric to assess classifier performance and set the final
-        # threshold on the test set based on on the F2 scores on the validation set
-        self.validation_f2s = [
-            evaluation.ThresholdF2(_threshold, self.data_loader_full.decode_label)
-            for _threshold in validation_f2_thresholds
+        # threshold on the test set based on on the recall scores on the validation set
+        self.validation_recalls = [
+            evaluation.ThresholdRecall(
+                _threshold,
+                self.data_loader_full.decode_label,
+                name="recall_score_%.2d" % _threshold,
+            )
+            for _threshold in validation_recall_thresholds
         ]
 
         # This should be instantiated last
@@ -317,7 +323,7 @@ class FasterRCNNWrapper:
         else:  # Do the first order training of the classification weights
 
             self.classmodel.compile(
-                optimizer=self.optimizer, metrics=self.validation_f2s
+                optimizer=self.optimizer, metrics=self.validation_recalls
             )
 
             self.classmodel.fit(
