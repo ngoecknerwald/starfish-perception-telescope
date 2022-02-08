@@ -20,11 +20,11 @@ class FasterRCNNWrapper:
         classifier_weights=None,
         classifier_kwargs={},
         classifier_learning_rate={
-            "epochs": [0, 3, 6],
+            "epochs": [1, 4, 7],
             "values": [1e-3, 1e-4, 1e-5],
         },
         classifier_weight_decay={
-            "epochs": [0, 3, 6],
+            "epochs": [1, 4, 7],
             "values": [1e-5, 1e-6, 1e-7],
         },
         classifier_momentum=0.9,

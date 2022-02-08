@@ -660,11 +660,11 @@ class RPNWrapper:
         IoU_neg_threshold=0.01,
         rpn_dropout=0.5,
         learning_rate={
-            "epochs": [0, 3, 6],
+            "epochs": [1, 4, 7],
             "values": [1e-3, 1e-4, 1e-5],
         },
         weight_decay={
-            "epochs": [0, 3, 6],
+            "epochs": [1, 4, 7],
             "values": [1e-5, 1e-6, 1e-7],
         },
         momentum=0.9,

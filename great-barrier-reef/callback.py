@@ -45,4 +45,4 @@ class LearningRateCallback(tf.keras.callbacks.Callback):
         tf.keras.backend.set_value(self.model.optimizer.learning_rate, _lr)
         tf.keras.backend.set_value(self.model.optimizer.weight_decay, _wd)
 
-        print("\nEpoch %d: learning_rate=%.4f weight_decay=%.6f " % (epoch, _lr, _wd))
+        print("\nEpoch %d: learning_rate=%.5f weight_decay=%.7f " % (epoch, _lr, _wd))
