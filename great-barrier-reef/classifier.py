@@ -42,7 +42,10 @@ class Classifier(tf.keras.layers.Layer):
         # Instantiate network components
         self.conv1 = tf.keras.layers.Conv2D(
             self.dense_layers,
-            (3, 3),
+            (
+                3,
+                3,
+            ),  # TODO this depends on parameters of the RoI pooling but is formally independent
             activation="relu",
             padding="valid",
         )
@@ -89,7 +92,7 @@ class ClassifierModel(tf.keras.Model):
         label_decoder,
         n_proposals,
         augmentation_params,
-        dense_layers=512,
+        dense_layers=1024,
         class_dropout=0.5,
     ):
         """
