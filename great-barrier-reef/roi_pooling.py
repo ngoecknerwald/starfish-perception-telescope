@@ -81,7 +81,7 @@ class RoIPooling(tf.keras.layers.Layer):
             self._pool_rois, (features, roi_nms), fn_output_signature=tf.float32
         )
 
-        return pooled_areas, roi_clipped
+        return pooled_areas, roi_nms
 
     @tf.function
     def _IoU_suppression(self, roi):
