@@ -123,9 +123,7 @@ class ClassifierModel(tf.keras.Model):
 
         # Balance + and - examples in the training, keep a moving
         # average of the last 100 regions
-        self._positive = tf.variable(0.0, trainable=False)
-        self.positive_ema = tf.train.ExponentialMovingAverage(decay=0.99)
-        self.positive_ema.apply([self._positive])
+        self._positive = tf.Variable(0.01, trainable=False)
 
         # Network and optimizer
         self.classifier = Classifier(
@@ -171,7 +169,7 @@ class ClassifierModel(tf.keras.Model):
         self.classifier.set_weights(localmodel.get_weights())
         del localmodel
 
-    def _compute_loss(self, data):
+    def _compute_loss(self, data, update_positive_weight=False):
         """
         Compute the loss term for the full network.
         Works on one image at a time.
@@ -207,10 +205,12 @@ class ClassifierModel(tf.keras.Model):
             tf.math.count_nonzero(IoUs, axis=0) > 0, tf.math.argmax(IoUs, axis=0), -1
         )
 
-        frac_positive = tf.cast(
-            tf.count_nonzero(tf.greater_equal(match, 0.0)), tf.float32
-        ) / tf.cast(match.shape[0], tf.flaot32)
-        self.positive_ema.apply([frac_positive])
+        # Exponential moving average with decay 0.01
+        if update_positive_weight:
+            frac_positive = tf.cast(
+                tf.math.count_nonzero(tf.math.greater_equal(match, 0)), tf.float32
+            ) / tf.cast(match.shape[0], tf.float32)
+            self._positive.assign_add(0.01 * (frac_positive - self._positive))
 
         # First the regularization term, turned down to match what's in the RPN
         # This regularization is on the outputs of the classifier network, not weights
@@ -236,7 +236,7 @@ class ClassifierModel(tf.keras.Model):
                 )
                 loss += self.class_loss(cls_select, tf.constant([0.0, 1.0]))
             else:
-                loss += self.frac_positive.average(self._positive) * self.class_loss(
+                loss += self._positive * self.class_loss(
                     cls_select, tf.constant([1.0, 0.0])
                 )
 
@@ -269,6 +269,9 @@ class ClassifierModel(tf.keras.Model):
             )
         )
 
+        def _local_loss(data):
+            return self._compute_loss(data, update_positive_weight=True)
+
         # Classification layer forward pass
         with tf.GradientTape() as tape:
 
@@ -276,7 +279,7 @@ class ClassifierModel(tf.keras.Model):
 
             loss = tf.reduce_sum(
                 tf.map_fn(
-                    self._compute_loss,
+                    _local_loss,
                     [cls, bbox, roi, labels],
                     fn_output_signature=(tf.float32),
                 )
@@ -322,11 +325,14 @@ class ClassifierModel(tf.keras.Model):
             )
         )
 
+        def _local_loss(data):
+            return self._compute_loss(data, update_positive_weight=False)
+
         # Classification layer forward pass
         cls, bbox = self.classifier(features, training=False)
         loss = tf.reduce_sum(
             tf.map_fn(
-                self._compute_loss,
+                _local_loss,
                 [cls, bbox, roi, labels],
                 fn_output_signature=(tf.float32),
             )
