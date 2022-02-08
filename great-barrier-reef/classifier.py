@@ -41,7 +41,10 @@ class Classifier(tf.keras.layers.Layer):
 
         # Instantiate network components
         self.conv1 = tf.keras.layers.Conv2D(
-            self.dense_layers, (1, 1), activation="relu"
+            self.dense_layers,
+            (3, 3),
+            activation="relu",
+            padding="valid",
         )
         self.flatten = tf.keras.layers.Flatten()
         self.cls = tf.keras.layers.Dense(
