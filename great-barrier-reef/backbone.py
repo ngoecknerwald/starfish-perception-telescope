@@ -56,7 +56,6 @@ class Backbone(tf.keras.layers.Layer):
             Pixel corrdinate in the feature map.
         """
 
-
         return (
             xx * self._input_shape[1] / self._output_shape[1],
             yy * self._input_shape[0] / self._output_shape[0],
@@ -74,7 +73,6 @@ class Backbone(tf.keras.layers.Layer):
         y : tf.tensor
             Pixel corrdinate in the image map.
         """
-
 
         return (
             x * self._output_shape[1] / self._input_shape[1],

@@ -27,7 +27,6 @@ class TopNRegionsRecall(tf.keras.metrics.Metric):
 
     def update_state(self, y_true, y_pred, sample_weight=None):
 
-
         ignore = tf.convert_to_tensor(
             [tf.constant(False)] * self.N
             + [
@@ -64,7 +63,6 @@ class ThresholdRecall(tf.keras.metrics.Metric):
         self.label_decoder = label_decoder
 
     def update_state(self, y_true, y_pred, sample_weight=None):
-
 
         # Check that classification scores are returned
         tf.debugging.assert_equal(y_pred.shape[2], 5)
@@ -110,7 +108,6 @@ def compute_recall_scores(
         Use a unique ignore per image otherwise move it outside the map_fn call.
     """
 
-
     if unique_ignore:
 
         # Make an analogue to functools.partial()
@@ -154,7 +151,6 @@ def compute_recall_score(proposal, label, ignore, thresholds):
         Minimum IoU to consider a proposal and a label a match. The recall score is
         a reduce_mean() over the set of thresholds provided.
     """
-
 
     true_pos = [
         0.0,

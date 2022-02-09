@@ -23,7 +23,6 @@ def calculate_IoU(a, b):
 
     """
 
-
     intersect = tf.math.maximum(
         0.0,
         tf.math.minimum(a[0] + a[2], b[0] + b[2]) - tf.math.maximum(a[0], b[0]),
@@ -54,7 +53,6 @@ def safe_exp(x):
 
     """
 
-
     return tf.nn.elu(x) + 1.0
 
 
@@ -72,7 +70,6 @@ def safe_log(x):
         Input variable
 
     """
-
 
     if x < 1.0:
         return tf.math.log(x)

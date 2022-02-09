@@ -54,7 +54,6 @@ class RPNLayer(tf.keras.layers.Layer):
 
     def call(self, x, training=False):
 
-
         x = self.conv1(x)
         if hasattr(self, "dropout1") and training:
             x = self.dropout1(x)
@@ -180,7 +179,6 @@ class RPNModel(tf.keras.Model):
 
         """
 
-
         # Run the feature extractor
         features = self.backbone(data[0])
 
@@ -223,7 +221,6 @@ class RPNModel(tf.keras.Model):
             Packed images and labels for this minibatch.
 
         """
-
 
         # Run the data augmentation
         data_aug = self.augmentation(data[0])
@@ -302,7 +299,6 @@ class RPNModel(tf.keras.Model):
             Tensor of shape (batch_size, top, 4) with image space
             coordinates (x,y,w,h)
         """
-
 
         # Run through the extractor if images
         if input_images:
@@ -394,7 +390,6 @@ class RPNModel(tf.keras.Model):
             or (0.,0.,0.,0.) if the RoI is not associated with any ground truth.
         """
 
-
         rois = []
 
         # Helper to deal with broadcasting, compute the ground truth
@@ -479,15 +474,14 @@ class RPNModel(tf.keras.Model):
             Output of accumulate_roi(), see training_step for use case.
         """
 
-
         cls, bbox, rois = data
 
         # Sanity check
         tf.debugging.assert_all_finite(cls, "NaN encountered in RPN training.")
 
         # Regularization loss
-        loss = tf.nn.l2_loss(cls) / (100.0 * tf.size(cls, out_type=tf.float32))
-        loss += tf.nn.l2_loss(bbox) / (10.0 * tf.size(bbox, out_type=tf.float32))
+        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
+        loss += tf.nn.l2_loss(bbox) / (1.0 * tf.size(bbox, out_type=tf.float32))
 
         # Count how many positive valid boxes we have
         n_positive = 0.0
@@ -557,7 +551,6 @@ class RPNModel(tf.keras.Model):
 
         """
 
-
         # Make the list of window sizes
         hh, ww = np.meshgrid(self.window_sizes, self.window_sizes)
         self.hh = tf.constant(hh.reshape(-1), dtype="float32")
@@ -625,7 +618,6 @@ class RPNModel(tf.keras.Model):
 
         """
 
-
         # Coordinates and area of the proposed region
         x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
         w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
@@ -657,7 +649,7 @@ class RPNWrapper:
         },
         weight_decay={
             "epochs": [1, 4, 7],
-            "values": [1e-5, 1e-6, 1e-7],
+            "values": [1e-4, 1e-5, 1e-6],
         },
         momentum=0.9,
         clipvalue=1e2,
