@@ -236,9 +236,11 @@ class ClassifierModel(tf.keras.Model):
                     [t_x_star, t_y_star, t_w_star, t_h_star],
                     bbox[i :: self.n_proposals],
                 )
-                loss += self.class_loss(cls_select, tf.constant([0.0, 1.0]))
+                loss += self.class_loss(
+                    cls_select, tf.constant([0.0, 1.0])
+                ) / tf.math.sqrt(self._positive + 0.01)
             else:
-                loss += self._positive * self.class_loss(
+                loss += tf.math.sqrt(self._positive + 0.01) * self.class_loss(
                     cls_select, tf.constant([1.0, 0.0])
                 )
 

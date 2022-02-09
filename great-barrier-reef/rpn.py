@@ -508,7 +508,9 @@ class RPNModel(tf.keras.Model):
                 if positive:
 
                     ground_truth = tf.constant([0.0, 1.0])
-                    loss += self.objectness(ground_truth, cls_select)
+                    loss += self.objectness(ground_truth, cls_select) / tf.math.sqrt(
+                        self._positive + 0.01
+                    )
 
                     # Refer the corners of the bounding box back to image space
                     # Note that this assumes said mapping is linear.
@@ -536,7 +538,9 @@ class RPNModel(tf.keras.Model):
 
                 else:
                     ground_truth = tf.constant([1.0, 0.0])
-                    loss += self._positive * self.objectness(ground_truth, cls_select)
+                    loss += tf.math.sqrt(self._positive + 0.01) * self.objectness(
+                        ground_truth, cls_select
+                    )
 
         # Exponential moving average update
         if update_positive_weight:
