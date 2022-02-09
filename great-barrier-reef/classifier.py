@@ -232,16 +232,19 @@ class ClassifierModel(tf.keras.Model):
                 t_y_star = (truth_box[1] - roi[1, i]) / roi[3, i]
                 t_w_star = geometry.safe_log(truth_box[2] / roi[2, i])
                 t_h_star = geometry.safe_log(truth_box[3] / roi[3, i])
-                loss += self.bbox_reg_l1(
-                    [t_x_star, t_y_star, t_w_star, t_h_star],
-                    bbox[i :: self.n_proposals],
+                loss += (
+                    self.bbox_reg_l1(
+                        [t_x_star, t_y_star, t_w_star, t_h_star],
+                        bbox[i :: self.n_proposals],
+                    )
+                    / tf.math.sqrt(self._positive + 0.01)
                 )
                 loss += self.class_loss(
-                    cls_select, tf.constant([0.0, 1.0])
+                    cls_select, tf.constant([0.1, 0.9])
                 ) / tf.math.sqrt(self._positive + 0.01)
             else:
                 loss += tf.math.sqrt(self._positive + 0.01) * self.class_loss(
-                    cls_select, tf.constant([1.0, 0.0])
+                    cls_select, tf.constant([0.9, 0.1])
                 )
 
         return loss

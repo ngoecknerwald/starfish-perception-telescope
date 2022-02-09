@@ -507,7 +507,7 @@ class RPNModel(tf.keras.Model):
                 # Compare anchor to ground truth
                 if positive:
 
-                    ground_truth = tf.constant([0.0, 1.0])
+                    ground_truth = tf.constant([0.1, 0.9])
                     loss += self.objectness(ground_truth, cls_select) / tf.math.sqrt(
                         self._positive + 0.01
                     )
@@ -529,15 +529,18 @@ class RPNModel(tf.keras.Model):
                     t_h_star = geometry.safe_log(roi_gt[3] / (h))
 
                     # Huber loss, which AFAIK is the same as smooth L1
-                    loss += self.bbox_reg_l1(
-                        [t_x_star, t_y_star, t_w_star, t_h_star],
-                        bbox[iyy, ixx, ik :: self.k],
+                    loss += (
+                        self.bbox_reg_l1(
+                            [t_x_star, t_y_star, t_w_star, t_h_star],
+                            bbox[iyy, ixx, ik :: self.k],
+                        )
+                        / tf.math.sqrt(self._positive + 0.01)
                     )
 
                     n_positive += 1.0
 
                 else:
-                    ground_truth = tf.constant([1.0, 0.0])
+                    ground_truth = tf.constant([0.9, 0.1])
                     loss += tf.math.sqrt(self._positive + 0.01) * self.objectness(
                         ground_truth, cls_select
                     )
