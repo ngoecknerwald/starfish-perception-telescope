@@ -195,4 +195,4 @@ def compute_recall_score(proposal, label, ignore, thresholds):
     if tf.math.is_finite(outval):
         return outval
     else:
-        return 1.0
+        return 0.0

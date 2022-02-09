@@ -150,7 +150,7 @@ class FasterRCNNWrapper:
             Also create the thumbnails for backbone pretraining.
         """
 
-        data_kwargs = {} if not self.debug else {"validation_split": 0.99}
+        self.data_kwargs = {} if not self.debug else {"validation_split": 0.99}
 
         self.data_loader_full = data_utils.DataLoaderFull(
             input_file=datapath, **data_kwargs
@@ -244,7 +244,9 @@ class FasterRCNNWrapper:
 
             assert os.path.exists(rpn_weights)
             # Run dummy data through to build the network, then load weights
-            minibatch = self.data_loader_full.get_training().__iter__().next()
+            minibatch = (
+                self.data_loader_full.get_training(**self.data_kwargs).__iter__().next()
+            )
             self.rpnwrapper.propose_regions(minibatch[0], input_images=True)
             self.rpnwrapper.load_rpn_state(rpn_weights)
             del minibatch
@@ -252,8 +254,8 @@ class FasterRCNNWrapper:
         else:  # train the RPN with the default settings
 
             self.rpnwrapper.train_rpn(
-                self.data_loader_full.get_training(),
-                valid_dataset=self.data_loader_full.get_validation()
+                self.data_loader_full.get_training(**self.data_kwargs),
+                valid_dataset=self.data_loader_full.get_validation(**self.data_kwargs)
                 if not self.debug
                 else None,
             )
@@ -315,7 +317,9 @@ class FasterRCNNWrapper:
 
             # Run dummy data through the network and then copy in weights
             assert os.path.exists(classifier_weights)
-            minibatch = self.data_loader_full.get_training().__iter__().next()
+            minibatch = (
+                self.data_loader_full.get_training(**self.data_kwargs).__iter__().next()
+            )
             features = self.backbone(minibatch[0])
             features, roi = self.RoI_pool(
                 (
@@ -337,9 +341,9 @@ class FasterRCNNWrapper:
             )
 
             self.classmodel.fit(
-                self.data_loader_full.get_training(),
+                self.data_loader_full.get_training(**self.data_kwargs),
                 epochs=epochs,
-                validation_data=self.data_loader_full.get_validation()
+                validation_data=self.data_loader_full.get_validation(**self.data_kwargs)
                 if not self.debug
                 else None,
                 callbacks=self.callbacks,
