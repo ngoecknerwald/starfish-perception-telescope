@@ -152,9 +152,7 @@ class FasterRCNNWrapper:
 
         self.data_kwargs = {} if not self.debug else {"validation_split": 0.99}
 
-        self.data_loader_full = data_utils.DataLoaderFull(
-            input_file=datapath, **data_kwargs
-        )
+        self.data_loader_full = data_utils.DataLoaderFull(input_file=datapath)
 
         if do_thumbnail:
             self.data_loader_thumb = data_utils.DataLoaderThumbnail(input_file=datapath)
