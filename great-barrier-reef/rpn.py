@@ -656,7 +656,7 @@ class RPNWrapper:
         },
         weight_decay={
             "epochs": [1, 4, 7],
-            "values": [1e-4, 1e-5, 1e-6],
+            "values": [1e-5, 1e-6, 1e-7],
         },
         momentum=0.9,
         clipvalue=1e3,
