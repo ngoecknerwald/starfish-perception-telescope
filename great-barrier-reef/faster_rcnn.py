@@ -85,7 +85,7 @@ class FasterRCNNWrapper:
             and contrast are copied over from the backbone fine tuning. The translation and rotation
             should be small enough to not meaningfully break the matching of RoI to the ground truth boxes.
         debug : bool
-            Run in debug mode - on 1% of data with no validation set.
+            Run in debug mode with 10% of data, no validation set, and 3 epochs.
         """
 
         # Record for posterity
@@ -93,6 +93,11 @@ class FasterRCNNWrapper:
         self.n_proposals = n_proposals
         self.positive_threshold = positive_threshold
         self.debug = debug
+
+        # Debug mode sets 10% data and 3 epochs of training. Enough to see
+        # weird behavior but still reasonably fast
+        self.data_kwargs = {"validation_split": 0.9} if self.debug else {}
+        self.epoch_kwargs = {"epochs": 3} if self.debug else {}
 
         # Instantiate data loading class
         self.instantiate_data_loaders(
@@ -149,8 +154,6 @@ class FasterRCNNWrapper:
         do_thumbnail : bool
             Also create the thumbnails for backbone pretraining.
         """
-
-        self.data_kwargs = {} if not self.debug else {"validation_split": 0.99}
 
         self.data_loader_full = data_utils.DataLoaderFull(input_file=datapath)
 
@@ -256,6 +259,7 @@ class FasterRCNNWrapper:
                 valid_dataset=self.data_loader_full.get_validation(**self.data_kwargs)
                 if not self.debug
                 else None,
+                **self.epoch_kwargs
             )
 
     def instantiate_RoI_pool(self, roi_kwargs):
@@ -297,7 +301,12 @@ class FasterRCNNWrapper:
         """
 
         # Number of epochs to train the classifier network
-        epochs = classifier_kwargs.pop("epochs", 9)
+        if "epochs" in self.epoch_kwargs.keys():
+            epochs = self.epoch_kwargs["epochs"]
+        elif "epochs" in classifier_kwargs.keys():
+            epochs = classifier_kwargs.pop("epochs")
+        else:
+            epochs = 9
 
         # Note that this is associated with self.backbone whereas
         # the rpn is associated with self.backbone_rpn

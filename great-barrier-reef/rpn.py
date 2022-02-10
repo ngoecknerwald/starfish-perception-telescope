@@ -483,9 +483,10 @@ class RPNModel(tf.keras.Model):
         # Sanity check
         tf.debugging.assert_all_finite(cls, "NaN encountered in RPN training.")
 
-        # Regularization loss
-        loss = tf.nn.l2_loss(bbox) / (1000.0 * tf.size(bbox, out_type=tf.float32))
-        loss += tf.nn.l2_loss(cls) / (1000.0 * tf.size(bbox, out_type=tf.float32))
+        # No L2 regularization loss for now
+        # loss = tf.nn.l2_loss(bbox) / (1000.0 * tf.size(bbox, out_type=tf.float32))
+        # loss += tf.nn.l2_loss(cls) / (1000.0 * tf.size(bbox, out_type=tf.float32))
+        loss = 0.0
 
         # Count how many positive valid boxes we have
         n_positive = 0.0

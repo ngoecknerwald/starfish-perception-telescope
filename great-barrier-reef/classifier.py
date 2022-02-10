@@ -218,11 +218,10 @@ class ClassifierModel(tf.keras.Model):
             tf.math.count_nonzero(IoUs, axis=0) > 0, tf.math.argmax(IoUs, axis=0), -1
         )
 
-        # First the regularization term, turned down to match what's in the RPN
-        # This regularization is on the outputs of the classifier network, not weights
-        # which is done implicitly by the SGDW optimizer
-        loss = tf.nn.l2_loss(bbox) / (1000.0 * tf.size(bbox, out_type=tf.float32))
-        loss += tf.nn.l2_loss(cls) / (1000.0 * tf.size(bbox, out_type=tf.float32))
+        # No L2 regulatization term for now
+        # loss = tf.nn.l2_loss(bbox) / (1000.0 * tf.size(bbox, out_type=tf.float32))
+        # loss += tf.nn.l2_loss(cls) / (1000.0 * tf.size(bbox, out_type=tf.float32))
+        loss = 0.0
 
         # Count how many positive valid boxes we have
         n_positive = 0.0
