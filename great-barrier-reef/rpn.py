@@ -480,8 +480,7 @@ class RPNModel(tf.keras.Model):
         tf.debugging.assert_all_finite(cls, "NaN encountered in RPN training.")
 
         # Regularization loss
-        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
-        loss += tf.nn.l2_loss(bbox) / (1.0 * tf.size(bbox, out_type=tf.float32))
+        loss = tf.nn.l2_loss(bbox) / (100.0 * tf.size(bbox, out_type=tf.float32))
 
         # Count how many positive valid boxes we have
         n_positive = 0.0
@@ -549,7 +548,7 @@ class RPNModel(tf.keras.Model):
 
         # Exponential moving average update
         if update_positive_weight:
-            frac_positive = n_positive / tf.reduce_sum(rois[:, 3])
+            frac_positive = n_positive / tf.math.maximum(tf.reduce_sum(rois[:, 3]), 1.0)
             self._positive.assign_add(0.01 * (frac_positive - self._positive))
 
         return loss
@@ -648,7 +647,7 @@ class RPNWrapper:
         anchor_stride=1,
         window_sizes=[2.0, 4.0],
         filters=1024,
-        roi_minibatch_per_image=16,  # This captures basically all of the positive examples
+        roi_minibatch_per_image=4,  # We randomly shuffle annotations so this should catch most starfish that appear more than once
         n_roi_output=128,
         IoU_neg_threshold=0.01,
         rpn_dropout=0.5,
@@ -661,7 +660,7 @@ class RPNWrapper:
             "values": [1e-4, 1e-5, 1e-6],
         },
         momentum=0.9,
-        clipvalue=1e4,
+        clipvalue=1e3,
         top_n_recall=32,
         training_params={
             "zoom": 0.01,

@@ -227,8 +227,7 @@ class ClassifierModel(tf.keras.Model):
         # First the regularization term, turned down to match what's in the RPN
         # This regularization is on the outputs of the classifier network, not weights
         # which is done implicitly by the SGDW optimizer
-        loss = tf.nn.l2_loss(cls) / (10.0 * tf.size(cls, out_type=tf.float32))
-        loss += tf.nn.l2_loss(bbox) / (1.0 * tf.size(bbox, out_type=tf.float32))
+        loss = tf.nn.l2_loss(bbox) / (100.0 * tf.size(bbox, out_type=tf.float32))
 
         for i in tf.range(self.n_proposals, dtype=tf.int64):
 

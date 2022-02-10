@@ -11,6 +11,7 @@ import json
 import numpy as np
 from matplotlib import image
 from PIL import Image  # tooooo many things called "image"
+import random
 
 # Classes in this file are called following
 # data=data_utils.DataLoader*(input_file='tensorflow-great-barrier-reef')
@@ -61,6 +62,8 @@ class DataLoader:
             [a["x"], a["y"], a["width"], a["height"]]
             for a in json.loads(label.replace("'", '"'))
         ]
+
+        random.shuffle(annotations)
 
         return (
             annotations
