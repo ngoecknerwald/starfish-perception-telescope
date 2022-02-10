@@ -480,7 +480,7 @@ class RPNModel(tf.keras.Model):
         tf.debugging.assert_all_finite(cls, "NaN encountered in RPN training.")
 
         # Regularization loss
-        loss = tf.nn.l2_loss(bbox) / (100.0 * tf.size(bbox, out_type=tf.float32))
+        loss = tf.nn.l2_loss(bbox) / (1000.0 * tf.size(bbox, out_type=tf.float32))
 
         # Count how many positive valid boxes we have
         n_positive = 0.0
@@ -657,7 +657,7 @@ class RPNWrapper:
         },
         weight_decay={
             "epochs": [1, 4, 7],
-            "values": [1e-4, 1e-5, 1e-6],
+            "values": [1e-5, 1e-6, 1e-7],
         },
         momentum=0.9,
         clipvalue=1e3,
