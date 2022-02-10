@@ -25,7 +25,7 @@ class FasterRCNNWrapper:
         },
         classifier_weight_decay={
             "epochs": [1, 4, 7],
-            "values": [1e-5, 1e-6, 1e-7],
+            "values": [1e-4, 1e-5, 1e-6],
         },
         classifier_momentum=0.9,
         classifier_clipvalue=1e2,

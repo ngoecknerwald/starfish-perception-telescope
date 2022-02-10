@@ -228,6 +228,7 @@ class ClassifierModel(tf.keras.Model):
         # This regularization is on the outputs of the classifier network, not weights
         # which is done implicitly by the SGDW optimizer
         loss = tf.nn.l2_loss(bbox) / (1000.0 * tf.size(bbox, out_type=tf.float32))
+        loss += tf.nn.l2_loss(cls) / (1000.0 * tf.size(bbox, out_type=tf.float32))
 
         for i in tf.range(self.n_proposals, dtype=tf.int64):
 
@@ -249,11 +250,11 @@ class ClassifierModel(tf.keras.Model):
                     / tf.math.sqrt(self._positive + 0.01)
                 )
                 loss += self.class_loss(
-                    cls_select, tf.constant([0.1, 0.9])
+                    cls_select, tf.constant([0.0, 1.0])
                 ) / tf.math.sqrt(self._positive + 0.01)
             else:
                 loss += tf.math.sqrt(self._positive + 0.01) * self.class_loss(
-                    cls_select, tf.constant([0.9, 0.1])
+                    cls_select, tf.constant([1.0, 0.0])
                 )
 
         return loss

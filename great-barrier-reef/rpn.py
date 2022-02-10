@@ -45,7 +45,9 @@ class RPNLayer(tf.keras.layers.Layer):
         if self.dropout is not None:
             self.dropout1 = tf.keras.layers.Dropout(self.dropout)
         self.cls = tf.keras.layers.Conv2D(
-            filters=2 * self.k, kernel_size=1, strides=(1, 1)
+            filters=2 * self.k,
+            kernel_size=1,
+            strides=(1, 1),
         )
         self.bbox = tf.keras.layers.Conv2D(
             filters=4 * self.k, kernel_size=1, strides=(1, 1)
@@ -481,6 +483,7 @@ class RPNModel(tf.keras.Model):
 
         # Regularization loss
         loss = tf.nn.l2_loss(bbox) / (1000.0 * tf.size(bbox, out_type=tf.float32))
+        loss += tf.nn.l2_loss(cls) / (1000.0 * tf.size(bbox, out_type=tf.float32))
 
         # Count how many positive valid boxes we have
         n_positive = 0.0
@@ -506,7 +509,7 @@ class RPNModel(tf.keras.Model):
                 # Compare anchor to ground truth
                 if positive:
 
-                    ground_truth = tf.constant([0.1, 0.9])
+                    ground_truth = tf.constant([0.0, 1.0])
                     loss += (
                         2.0
                         * self.objectness(ground_truth, cls_select)
@@ -541,7 +544,7 @@ class RPNModel(tf.keras.Model):
                     n_positive += 1.0
 
                 else:
-                    ground_truth = tf.constant([0.9, 0.1])
+                    ground_truth = tf.constant([1.0, 0.0])
                     loss += tf.math.sqrt(self._positive + 0.01) * self.objectness(
                         ground_truth, cls_select
                     )
@@ -657,7 +660,7 @@ class RPNWrapper:
         },
         weight_decay={
             "epochs": [1, 4, 7],
-            "values": [1e-5, 1e-6, 1e-7],
+            "values": [1e-4, 1e-5, 1e-6],
         },
         momentum=0.9,
         clipvalue=1e3,
