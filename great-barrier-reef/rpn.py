@@ -508,8 +508,10 @@ class RPNModel(tf.keras.Model):
                 if positive:
 
                     ground_truth = tf.constant([0.1, 0.9])
-                    loss += self.objectness(ground_truth, cls_select) / tf.math.sqrt(
-                        self._positive + 0.01
+                    loss += (
+                        2.0
+                        * self.objectness(ground_truth, cls_select)
+                        / tf.math.sqrt(self._positive + 0.01)
                     )
 
                     # Refer the corners of the bounding box back to image space
@@ -656,10 +658,10 @@ class RPNWrapper:
         },
         weight_decay={
             "epochs": [1, 4, 7],
-            "values": [1e-5, 1e-6, 1e-7],
+            "values": [1e-4, 1e-5, 1e-6],
         },
         momentum=0.9,
-        clipvalue=1e3,
+        clipvalue=1e4,
         top_n_recall=32,
         training_params={
             "zoom": 0.01,

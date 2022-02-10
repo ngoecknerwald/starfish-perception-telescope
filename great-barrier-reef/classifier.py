@@ -41,11 +41,20 @@ class Classifier(tf.keras.layers.Layer):
 
         # Instantiate network components
         self.conv1 = tf.keras.layers.Conv2D(
-            self.dense_layers,
+            self.dense_layers[0],
             (
-                3,
-                3,
-            ),  # TODO this depends on parameters of the RoI pooling but is formally independent
+                2,
+                2,
+            ),
+            activation="relu",
+            padding="valid",
+        )
+        self.conv2 = tf.keras.layers.Conv2D(
+            self.dense_layers[1],
+            (
+                2,
+                2,
+            ),
             activation="relu",
             padding="valid",
         )
@@ -61,6 +70,7 @@ class Classifier(tf.keras.layers.Layer):
     def call(self, x, training=False):
 
         x = self.conv1(x)
+        x = self.conv2(x)
         x = self.flatten(x)
         if hasattr(self, "dropout1") and training:
             x = self.dropout1(x)
@@ -90,7 +100,7 @@ class ClassifierModel(tf.keras.Model):
         label_decoder,
         n_proposals,
         augmentation_params,
-        dense_layers=1024,
+        dense_layers=[512, 128],
         class_dropout=0.5,
     ):
         """
@@ -232,7 +242,7 @@ class ClassifierModel(tf.keras.Model):
                 t_y_star = (truth_box[1] - roi[1, i]) / roi[3, i]
                 t_w_star = geometry.safe_log(truth_box[2] / roi[2, i])
                 t_h_star = geometry.safe_log(truth_box[3] / roi[3, i])
-                loss += (
+                loss += 2.0 * (
                     self.bbox_reg_l1(
                         [t_x_star, t_y_star, t_w_star, t_h_star],
                         bbox[i :: self.n_proposals],
