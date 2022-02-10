@@ -136,8 +136,9 @@ class ClassifierModel(tf.keras.Model):
         self.augmentation_params = augmentation_params
 
         # Balance + and - examples in the training, keep a moving
-        # average of the last 100 regions
-        self._positive = tf.Variable(0.01, trainable=False)
+        # average of the last 100 regions like the RPN
+        self._positive = tf.Variable(100.0, trainable=False)
+        self._negative = tf.Variable(100.0, trainable=False)
 
         # Network and optimizer
         self.classifier = Classifier(
@@ -217,18 +218,15 @@ class ClassifierModel(tf.keras.Model):
             tf.math.count_nonzero(IoUs, axis=0) > 0, tf.math.argmax(IoUs, axis=0), -1
         )
 
-        # Exponential moving average with decay 0.01
-        if update_positive_weight:
-            frac_positive = tf.cast(
-                tf.math.count_nonzero(tf.math.greater_equal(match, 0)), tf.float32
-            ) / tf.cast(match.shape[0], tf.float32)
-            self._positive.assign_add(0.01 * (frac_positive - self._positive))
-
         # First the regularization term, turned down to match what's in the RPN
         # This regularization is on the outputs of the classifier network, not weights
         # which is done implicitly by the SGDW optimizer
         loss = tf.nn.l2_loss(bbox) / (1000.0 * tf.size(bbox, out_type=tf.float32))
         loss += tf.nn.l2_loss(cls) / (1000.0 * tf.size(bbox, out_type=tf.float32))
+
+        # Count how many positive valid boxes we have
+        n_positive = 0.0
+        n_negative = 0.0
 
         for i in tf.range(self.n_proposals, dtype=tf.int64):
 
@@ -242,20 +240,24 @@ class ClassifierModel(tf.keras.Model):
                 t_y_star = (truth_box[1] - roi[1, i]) / roi[3, i]
                 t_w_star = geometry.safe_log(truth_box[2] / roi[2, i])
                 t_h_star = geometry.safe_log(truth_box[3] / roi[3, i])
-                loss += 2.0 * (
-                    self.bbox_reg_l1(
-                        [t_x_star, t_y_star, t_w_star, t_h_star],
-                        bbox[i :: self.n_proposals],
-                    )
-                    / tf.math.sqrt(self._positive + 0.01)
+                loss += 2.0 * self.bbox_reg_l1(
+                    [t_x_star, t_y_star, t_w_star, t_h_star],
+                    bbox[i :: self.n_proposals],
                 )
-                loss += self.class_loss(
-                    cls_select, tf.constant([0.0, 1.0])
-                ) / tf.math.sqrt(self._positive + 0.01)
+                loss += self.class_loss(cls_select, tf.constant([0.0, 1.0]))
+                n_positive += 1.0
+            elif tf.math.greater(
+                self._positive, self._negative
+            ):  # enough positives, keep this negative
+                loss += self.class_loss(cls_select, tf.constant([1.0, 0.0]))
+                n_negative += 1.0
             else:
-                loss += tf.math.sqrt(self._positive + 0.01) * self.class_loss(
-                    cls_select, tf.constant([1.0, 0.0])
-                )
+                pass
+
+        # Exponential moving average update
+        if update_positive_weight:
+            self._positive.assign(0.99 * self._positive + n_positive)
+            self._negative.assign(0.99 * self._negative + n_negative)
 
         return loss
 

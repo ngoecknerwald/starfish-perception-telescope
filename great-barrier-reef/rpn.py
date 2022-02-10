@@ -164,10 +164,12 @@ class RPNModel(tf.keras.Model):
             ]
         )
 
-        # Same thing as the classifier, accumulate a running average of the fraction
-        # of examples that are + and use that to reweight the negative examples.
+        # Same thing as the classifier, accumulate a running average of the number of
+        # examples that are + and use that to veto the negative examples.
         # Assume we'll use O(10) minibatch samples per image, this will quickly adjust
-        self._positive = tf.Variable(0.1, trainable=False)
+        # from the initial setting
+        self._positive = tf.Variable(100.0, trainable=False)
+        self._negative = tf.Variable(100.0, trainable=False)
 
     @tf.function
     def test_step(self, data):
@@ -487,6 +489,7 @@ class RPNModel(tf.keras.Model):
 
         # Count how many positive valid boxes we have
         n_positive = 0.0
+        n_negative = 0.0
 
         # Work one RoI at a time
         for i in range(self.roi_minibatch_per_image):
@@ -510,11 +513,7 @@ class RPNModel(tf.keras.Model):
                 if positive:
 
                     ground_truth = tf.constant([0.0, 1.0])
-                    loss += (
-                        2.0
-                        * self.objectness(ground_truth, cls_select)
-                        / tf.math.sqrt(self._positive + 0.01)
-                    )
+                    loss += 2.0 * self.objectness(ground_truth, cls_select)
 
                     # Refer the corners of the bounding box back to image space
                     # Note that this assumes said mapping is linear.
@@ -533,26 +532,26 @@ class RPNModel(tf.keras.Model):
                     t_h_star = geometry.safe_log(roi_gt[3] / (h))
 
                     # Huber loss, which AFAIK is the same as smooth L1
-                    loss += (
-                        self.bbox_reg_l1(
-                            [t_x_star, t_y_star, t_w_star, t_h_star],
-                            bbox[iyy, ixx, ik :: self.k],
-                        )
-                        / tf.math.sqrt(self._positive + 0.01)
+                    loss += self.bbox_reg_l1(
+                        [t_x_star, t_y_star, t_w_star, t_h_star],
+                        bbox[iyy, ixx, ik :: self.k],
                     )
 
                     n_positive += 1.0
 
-                else:
+                elif tf.math.greater(
+                    self._positive, self._negative
+                ):  # take a negative because we have enough positives
                     ground_truth = tf.constant([1.0, 0.0])
-                    loss += tf.math.sqrt(self._positive + 0.01) * self.objectness(
-                        ground_truth, cls_select
-                    )
+                    loss += self.objectness(ground_truth, cls_select)
+                    n_negative += 1.0
+                else:  # too many negatives, ignore this RoI
+                    pass
 
         # Exponential moving average update
         if update_positive_weight:
-            frac_positive = n_positive / tf.math.maximum(tf.reduce_sum(rois[:, 3]), 1.0)
-            self._positive.assign_add(0.01 * (frac_positive - self._positive))
+            self._positive.assign(0.99 * self._positive + n_positive)
+            self._negative.assign(0.99 * self._negative + n_negative)
 
         return loss
 
@@ -650,7 +649,7 @@ class RPNWrapper:
         anchor_stride=1,
         window_sizes=[2.0, 4.0],
         filters=1024,
-        roi_minibatch_per_image=4,  # We randomly shuffle annotations so this should catch most starfish that appear more than once
+        roi_minibatch_per_image=16,  # Might as well catch everything, because we are ignoring RoI to balance
         n_roi_output=128,
         IoU_neg_threshold=0.01,
         rpn_dropout=0.5,
