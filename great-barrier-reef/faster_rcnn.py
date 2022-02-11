@@ -14,10 +14,10 @@ class FasterRCNNWrapper:
         datapath="/content",
         backbone_type="ResNet50",
         backbone_weights="finetune",
-        rpn_weights=None,
+        rpn_weights="train",
         rpn_kwargs={},
         roi_kwargs={},
-        classifier_weights=None,
+        classifier_weights="train",
         classifier_kwargs={},
         classifier_learning_rate={
             "epochs": [1, 4, 7],
@@ -36,7 +36,7 @@ class FasterRCNNWrapper:
             "contrast": 0.25,
         },
         validation_recall_thresholds=[0.1, 0.25, 0.5, 0.75, 0.9],
-        debug=False,
+        debug=1,
     ):
 
         """
@@ -62,14 +62,14 @@ class FasterRCNNWrapper:
             Options are 'imagenet' to use pretrained weights from ImageNet, 'finetune'
             to run the fine tuning loop with a classification network on thumbnails,
             or a file path to load existing fine-tuned weights.
-        rpn_weights : str or None
-            Load pre-trained weights for the RPN from this file path.
+        rpn_weights : str
+            Load pre-trained weights for the RPN from this file path, 'skip', or 'train'.
         rpn_kwargs : dict
             Optional keyword arguments passed to the RPN wrapper.
         roi_kwargs : dict
             Optional keyword arguments passed to the RoI Pooling layer.
-        classifier_weights : str or None
-            Saved weights for the final classification network.
+        classifier_weights : str
+            Saved weights for the final classification network, 'skip', or 'train'
         classifier_kwargs : dict
             Optional keyword arguments passed to the Classifier wrapper.
         classifier_learning_rate : dict
@@ -84,8 +84,12 @@ class FasterRCNNWrapper:
             Parameters to pass to the augmentation segment when training. The Gaussian noise augmentation
             and contrast are copied over from the backbone fine tuning. The translation and rotation
             should be small enough to not meaningfully break the matching of RoI to the ground truth boxes.
-        debug : bool
-            Run in debug mode with 10% of data, no validation set, and 3 epochs.
+        debug : int
+            0) Train on every image in the dataset, no validation set
+            1) Run with 80% of the data and a validation set
+            2) Run in debug mode with 10% of data, no validation set, and 3 epochs.
+            Usually the answer is 1).
+
         """
 
         # Record for posterity
@@ -94,10 +98,18 @@ class FasterRCNNWrapper:
         self.positive_threshold = positive_threshold
         self.debug = debug
 
-        # Debug mode sets 10% data and 3 epochs of training. Enough to see
-        # weird behavior but still reasonably fast
-        self.data_kwargs = {"validation_split": 0.9} if self.debug else {}
-        self.epoch_kwargs = {"epochs": 3} if self.debug else {}
+        # Check debug mode is valid
+        assert self.debug in [0, 1, 2]
+
+        if self.debug == 0:  # No validation set, use everything we can
+            self.data_kwargs = {"validation_split": 0.0}
+            self.epoch_kwargs = {}
+        elif self.debug == 2:  # Small dataset to check code
+            self.data_kwargs = {"validation_split": 0.9}
+            self.epoch_kwargs = {"epochs": 3}
+        else:  # default parameters
+            self.data_kwargs = {}
+            self.epoch_kwargs = {}
 
         # Instantiate data loading class
         self.instantiate_data_loaders(
@@ -121,6 +133,7 @@ class FasterRCNNWrapper:
             clipvalue=classifier_clipvalue,
         )
 
+        # Change the learning rate over the course of training
         self.callbacks = [
             callback.LearningRateCallback(
                 classifier_learning_rate, classifier_weight_decay
@@ -241,7 +254,9 @@ class FasterRCNNWrapper:
             self.backbone, self.data_loader_full.decode_label, **rpn_kwargs
         )
 
-        if rpn_weights is not None:  # Load the weights from a file
+        if not (
+            rpn_weights.lower() in ["skip", "train"]
+        ):  # Load the weights from a file
 
             assert os.path.exists(rpn_weights)
             # Run dummy data through to build the network, then load weights
@@ -252,15 +267,17 @@ class FasterRCNNWrapper:
             self.rpnwrapper.load_rpn_state(rpn_weights)
             del minibatch
 
-        else:  # train the RPN with the default settings
+        elif rpn_weights.lower() == "train":  # train the RPN with the default settings
 
             self.rpnwrapper.train_rpn(
                 self.data_loader_full.get_training(**self.data_kwargs),
                 valid_dataset=self.data_loader_full.get_validation(**self.data_kwargs)
-                if not self.debug
+                if self.debug == 1
                 else None,
                 **self.epoch_kwargs
             )
+
+        # else: Skip RPN training
 
     def instantiate_RoI_pool(self, roi_kwargs):
 
@@ -320,7 +337,7 @@ class FasterRCNNWrapper:
             **classifier_kwargs
         )
 
-        if classifier_weights is not None:
+        if not (classifier_weights.lower() in ["skip", "train"]):
 
             # Run dummy data through the network and then copy in weights
             assert os.path.exists(classifier_weights)
@@ -341,7 +358,9 @@ class FasterRCNNWrapper:
 
             self.classmodel.load_classifier_state(classifier_weights)
 
-        else:  # Do the first order training of the classification weights
+        elif (
+            classifier_weights.lower() == "train"
+        ):  # Do the first order training of the classification weights
 
             self.classmodel.compile(
                 optimizer=self.optimizer, metrics=self.validation_recalls
@@ -351,10 +370,12 @@ class FasterRCNNWrapper:
                 self.data_loader_full.get_training(**self.data_kwargs),
                 epochs=epochs,
                 validation_data=self.data_loader_full.get_validation(**self.data_kwargs)
-                if not self.debug
+                if self.debug == 1
                 else None,
                 callbacks=self.callbacks,
             )
+
+        # else: Skip classifier training
 
     def predict(self, images, return_mode="string"):
         """
