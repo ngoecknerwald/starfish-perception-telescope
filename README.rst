@@ -9,8 +9,8 @@ Sam Guns* and Neil Goeckner-Wald**
 
 Both authors contributed equally and were involved in all aspects of the project.
 
- * Sam's professional website!
- ** `<https://ngoecknerwald.github.io/>`_
+\* Sam's professional website!
+\*\* `<https://ngoecknerwald.github.io/>`_
 
 Guide to the Code
 =================
