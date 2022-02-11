@@ -102,10 +102,10 @@ class FasterRCNNWrapper:
         assert isinstance(self.debug, int) and self.debug in [0, 1, 2]
 
         if self.debug == 0:  # No validation set, use everything we can
-            self.data_kwargs = {"validation_split": 0.0}
+            self.data_kwargs = {"validation_split": 0.01}
             self.epoch_kwargs = {}
         elif self.debug == 2:  # Small dataset to check code
-            self.data_kwargs = {"validation_split": 0.9}
+            self.data_kwargs = {"validation_split": 0.99}
             self.epoch_kwargs = {"epochs": 3}
         else:  # default parameters
             self.data_kwargs = {}
