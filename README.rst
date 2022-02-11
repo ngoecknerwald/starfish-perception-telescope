@@ -9,22 +9,22 @@ Sam Guns* and Neil Goeckner-Wald**
 
 Both authors contributed equally and were involved in all aspects of the project.
 
-* Sam's professional website!
-** `<https://ngoecknerwald.github.io/>`_
+ * Sam's professional website!
+ ** `<https://ngoecknerwald.github.io/>`_
 
 Guide to the Code
 =================
 
-``backbone.py`` : General feature extraction backbone class and subclasses to implement different architectures.
-``callback.py`` : Callback routines for training, used to set the learning rate versus epoch.
-``classifier.py`` : Final output network, note that the training calls live in ``faster_rcnn.py``.
-``combined-runtime.ipynb``: Colab notebook used to run the code.
-``data_utils.py`` : Classes for interfacing with the dataset and matching annotations with images.
-``evaluation.py`` : Recall metrics used to monitor training progress.
-``faster_rcnn.py`` : High level driver module, instantiates and trains network subcomponents.
-``geometry.py`` : IoU and related methods used elsewhere.
-``roi_pooling.py`` : Class for the RoI pooling and IoU suppression routines attached to the output of the RPN.
-``rpn.py`` : Region proposal network and wrapper classes.
+#. ``backbone.py`` : General feature extraction backbone class and subclasses to implement different architectures.
+#. ``callback.py`` : Callback routines for training, used to set the learning rate versus epoch.
+#. ``classifier.py`` : Final output network, note that the training calls live in ``faster_rcnn.py``.
+#. ``combined-runtime.ipynb``: Colab notebook used to run the code.
+#. ``data_utils.py`` : Classes for interfacing with the dataset and matching annotations with images.
+#. ``evaluation.py`` : Recall metrics used to monitor training progress.
+#. ``faster_rcnn.py`` : High level driver module, instantiates and trains network subcomponents.
+#. ``geometry.py`` : IoU and related methods used elsewhere.
+#. ``roi_pooling.py`` : Class for the RoI pooling and IoU suppression routines attached to the output of the RPN.
+#. ``rpn.py`` : Region proposal network and wrapper classes.
 
 To instantiate the model and train from pretrained ImageNet weights one calls:
 
