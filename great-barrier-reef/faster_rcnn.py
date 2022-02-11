@@ -28,7 +28,7 @@ class FasterRCNNWrapper:
             "values": [1e-4, 1e-5, 1e-6],
         },
         classifier_momentum=0.9,
-        classifier_clipvalue=1e1,
+        classifier_clipvalue=1e2,
         classifier_augmentation={
             "zoom": 0.01,
             "rotation": 0.01,

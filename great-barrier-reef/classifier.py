@@ -241,12 +241,12 @@ class ClassifierModel(tf.keras.Model):
                     [t_x_star, t_y_star, t_w_star, t_h_star],
                     bbox[i :: self.n_proposals],
                 )
-                loss += self.class_loss(cls_select, tf.constant([0.0, 1.0]))
+                loss += self.class_loss(cls_select, tf.constant([0.1, 0.9]))
                 n_positive += 1.0
             elif tf.math.greater(
                 self._positive, self._negative
             ):  # enough positives, keep this negative
-                loss += self.class_loss(cls_select, tf.constant([1.0, 0.0]))
+                loss += self.class_loss(cls_select, tf.constant([0.9, 0.1]))
                 n_negative += 1.0
             else:
                 pass
