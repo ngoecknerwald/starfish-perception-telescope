@@ -99,7 +99,7 @@ class FasterRCNNWrapper:
         self.debug = debug
 
         # Check debug mode is valid
-        assert self.debug in [0, 1, 2]
+        assert isinstance(self.debug, int) and self.debug in [0, 1, 2]
 
         if self.debug == 0:  # No validation set, use everything we can
             self.data_kwargs = {"validation_split": 0.0}
