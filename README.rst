@@ -34,8 +34,8 @@ To instantiate the model and train from pretrained ImageNet weights one calls:
         datapath = '<path_to_competition_dataset>',
         backbone_type = 'ResNet50', #InceptionResNetV2 and VGG16 are also supported
         backbone_weights = 'finetune',
-        rpn_weights = None,
-        classifier_weights= None,
+        rpn_weights = 'train',
+        classifier_weights= 'train',
     )
 
 The model can also be built with pre-trained and weights saved using the utilities
