@@ -20,12 +20,24 @@ class FasterRCNNWrapper:
         classifier_weights="train",
         classifier_kwargs={},
         classifier_learning_rate={
-            "epochs": [1, 4, 7], # last epoch here doesn't do anything
-            "values": [1e-3, 1e-4, 1e-5], # last epoch here doesn't do anything
+            "epochs": [
+                1,
+                4,
+            ],
+            "values": [
+                1e-3,
+                1e-4,
+            ],
         },
         classifier_weight_decay={
-            "epochs": [1, 4, 7], # last epoch here doesn't do anything
-            "values": [1e-4, 1e-5, 1e-6], # last epoch here doesn't do anything
+            "epochs": [
+                1,
+                4,
+            ],
+            "values": [
+                1e-4,
+                1e-5,
+            ],
         },
         classifier_momentum=0.9,
         classifier_clipvalue=1e2,
@@ -304,7 +316,7 @@ class FasterRCNNWrapper:
         elif "epochs" in classifier_kwargs.keys():
             epochs = classifier_kwargs.pop("epochs")
         else:
-            epochs = 9
+            epochs = 6
 
         # Note that this is associated with self.backbone whereas
         # the rpn is associated with self.backbone_rpn
@@ -461,7 +473,9 @@ class FasterRCNNWrapper:
             int(region["height"]),
         )
 
-    def do_fine_tuning(self, epochs):
+    def do_fine_tuning(
+        self, epochs, learning_rate=1e-5, weight_decay=1e-6, momentum=0.9, clipvalue=1e2
+    ):
         """
         Free up the backbone and run a joint training routine.
 
@@ -473,6 +487,15 @@ class FasterRCNNWrapper:
         epochs : int
             If > 0 run this many epochs in fine tuning mode where the backbone weights are
             freed. Uses the learning rate and weight decay from the final epoch.
+        learning_rate : float
+            Learning rate to be used for both updating the backbone + RPN and classifier.
+        weight_decay : float
+            Weight decay parameter in the optimizer.
+        momentum : float
+            Momentum parameter in the optimizer.
+        clipvalue : float
+            Gradient clipping in the optimizer.
+
 
         """
 
@@ -480,16 +503,11 @@ class FasterRCNNWrapper:
         if epochs == 0:
             return
 
-        # Optimizer uses the weight decay and learning rates
-        # from the final base training epoch. Uses the
-        # same clip value and momentum parameters as the classifier
-        # although the gradient clip shouldn't matter here.
-        fine_optimizer = tfa.optimizers.SGDW(
-            learning_rate=self.classifier_learning_rate["values"][-1], # This is almost certainly too slow
-            weight_decay=self.classifier_weight_decay["values"][-1], # This is also too slow
-            momentum=self.classifier_momentum,
-            clipvalue=self.classifier_clipvalue,
-        )
+        ###########
+        #
+        # First train the RPN + backbone in isolation
+        #
+        ###########
 
         # Important - free up the backbone weights
         self.backbone.set_trainable(True)
@@ -498,23 +516,25 @@ class FasterRCNNWrapper:
         joint_model = jointmodel.JointModel(
             self.backbone,
             self.rpnwrapper.rpnmodel,
-            self.RoI_pool,
-            self.classmodel,
             self.data_loader_full.decode_label,
-            self.classifier_augmentation,
+            self.rpnmodel.rpn.augmentation,
         )
 
         # Compile the joint model using the fine runing optimizer and
         # the same metrics as the classifier
         joint_model.compile(
-            optimizer=fine_optimizer,
+            optimizer=tfa.optimizers.SGDW(
+                learning_rate=learning_rate,
+                weight_decay=weight_decay,
+                momentum=momentum,
+                clipvalue=clipvalue,
+            ),
             metrics=[
-                evaluation.ThresholdRecall(
-                    _threshold,
+                evaluation.TopNRegionsRecall(
+                    self.rpnwrapper.top_n_recall,
                     self.data_loader_full.decode_label,
-                    name="recall_score_%.2d" % _threshold,
+                    name="top%d_recall" % self.rpnwrapper.top_n_recall,
                 )
-                for _threshold in self.validation_recall_thresholds
             ],
         )
 
@@ -529,3 +549,39 @@ class FasterRCNNWrapper:
 
         # Set the backbone where we found it
         self.backbone.set_trainable(False)
+
+        ###########
+        #
+        # Now retrain the classifier
+        #
+        ###########
+
+        self.classmodel.compile(
+            optimizer=tfa.optimizers.SGDW(
+                learning_rate=learning_rate,
+                weight_decay=weight_decay,
+                momentum=momentum,
+                clipvalue=clipvalue,
+            ),
+            metrics=[
+                evaluation.ThresholdRecall(
+                    _threshold,
+                    self.data_loader_full.decode_label,
+                    name="recall_score_%.2d" % _threshold,
+                )
+                for _threshold in self.validation_recall_thresholds
+            ],
+        )
+
+        self.classmodel.fit(
+            self.data_loader_full.get_training(**self.data_kwargs),
+            epochs=epochs,
+            validation_data=self.data_loader_full.get_validation(**self.data_kwargs)
+            if self.debug == 1
+            else None,
+            callbacks=[
+                callback.LearningRateCallback(
+                    classifier_learning_rate, classifier_weight_decay
+                )
+            ],
+        )

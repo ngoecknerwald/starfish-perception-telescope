@@ -724,6 +724,7 @@ class RPNWrapper:
         # Optimizer parameters
         self.momentum = momentum
         self.clipvalue = clipvalue
+        self.top_n_recall = top_n_recall
 
         # Optimizer
         self.optimizer = tfa.optimizers.SGDW(
