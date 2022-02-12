@@ -7,3 +7,4 @@ from . import roi_pooling
 from . import rpn
 from . import evaluation
 from . import callback
+from . import jointmodel

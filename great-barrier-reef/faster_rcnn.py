@@ -1,7 +1,7 @@
 # High-level class for the full Faster R-CNN network.
 import tensorflow as tf
 import tensorflow_addons as tfa
-import backbone, classifier, data_utils, roi_pooling, rpn, evaluation, callback
+import backbone, classifier, data_utils, roi_pooling, rpn, evaluation, callback, jointmodel
 import os
 
 
@@ -89,7 +89,6 @@ class FasterRCNNWrapper:
             1) Run with 80% of the data and a validation set
             2) Run in debug mode with 10% of data, no validation set, and 3 epochs.
             Usually the answer is 1).
-
         """
 
         # Record for posterity
@@ -97,6 +96,13 @@ class FasterRCNNWrapper:
         self.n_proposals = n_proposals
         self.positive_threshold = positive_threshold
         self.debug = debug
+
+        # Store because we'll use this again the fine tuning loops
+        self.classifier_learning_rate = classifier_learning_rate
+        self.classifier_weight_decay = classifier_weight_decay
+        self.classifier_momentum = classifier_momentum
+        self.classifier_clipvalue = classifier_clipvalue
+        self.validation_recall_thresholds = validation_recall_thresholds
 
         # Check debug mode is valid
         assert isinstance(self.debug, int) and self.debug in [0, 1, 2]
@@ -124,32 +130,6 @@ class FasterRCNNWrapper:
 
         # Instantiate the tail network
         self.instantiate_RoI_pool(roi_kwargs)
-
-        # Optimizer for the intitial classifier training
-        self.optimizer = tfa.optimizers.SGDW(
-            learning_rate=classifier_learning_rate["values"][0],
-            weight_decay=classifier_weight_decay["values"][0],
-            momentum=classifier_momentum,
-            clipvalue=classifier_clipvalue,
-        )
-
-        # Change the learning rate over the course of training
-        self.callbacks = [
-            callback.LearningRateCallback(
-                classifier_learning_rate, classifier_weight_decay
-            )
-        ]
-
-        # Metric to assess classifier performance and set the final
-        # threshold on the test set based on on the recall scores on the validation set
-        self.validation_recalls = [
-            evaluation.ThresholdRecall(
-                _threshold,
-                self.data_loader_full.decode_label,
-                name="recall_score_%.2d" % _threshold,
-            )
-            for _threshold in validation_recall_thresholds
-        ]
 
         # This should be instantiated last
         self.instantiate_classifier(
@@ -363,7 +343,20 @@ class FasterRCNNWrapper:
         ):  # Do the first order training of the classification weights
 
             self.classmodel.compile(
-                optimizer=self.optimizer, metrics=self.validation_recalls
+                optimizer=tfa.optimizers.SGDW(
+                    learning_rate=self.classifier_learning_rate["values"][0],
+                    weight_decay=self.classifier_weight_decay["values"][0],
+                    momentum=self.classifier_momentum,
+                    clipvalue=self.classifier_clipvalue,
+                ),
+                metrics=[
+                    evaluation.ThresholdRecall(
+                        _threshold,
+                        self.data_loader_full.decode_label,
+                        name="recall_score_%.2d" % _threshold,
+                    )
+                    for _threshold in self.validation_recall_thresholds
+                ],
             )
 
             self.classmodel.fit(
@@ -372,7 +365,11 @@ class FasterRCNNWrapper:
                 validation_data=self.data_loader_full.get_validation(**self.data_kwargs)
                 if self.debug == 1
                 else None,
-                callbacks=self.callbacks,
+                callbacks=[
+                    callback.LearningRateCallback(
+                        classifier_learning_rate, classifier_weight_decay
+                    )
+                ],
             )
 
         # else: Skip classifier training
@@ -463,46 +460,69 @@ class FasterRCNNWrapper:
             int(region["height"]),
         )
 
-    # Finally, we want to instantiate a copy of the backbone that the
-    # RPN will use to propose regions. We will end up fine tuning the
-    # backbone in conjunction with the classification layers and we
-    # don't want the backbone changing under the RPN's feet.
+    def do_fine_tuning(self, epochs):
+        """
+        Free up the backbone and run a joint training routine.
 
-    # Create a new backbone and copy weights over to make a deep copy
-    # init_args = {"input_shape": None, "weights": None}
-    # self.backbone_rpn = backbone.instantiate(backbone_type, init_args)
-    # self.backbone_rpn.network.set_weights(self.backbone.network.get_weights())
+        The tensorflow model building paradigm has pushed us into
+        a bit of a weird corner. We will instantiate a temporary
+        class whose job is to update the weights of all three components
+        during a fine tuning loop but otherwise has an empty call() method.
 
-    # Set self.backbone_rpn trainable=False <- the copy of the backbone fed into the RPN
-    # Set self.backbone trainable = True <- the copy of the backbone fed into the classifier
+        epochs : int
+            If > 0 run this many epochs in fine tuning mode where the backbone weights are
+            freed. Uses the learning rate and weight decay from the final epoch.
 
-    # for i in range(epochs):
-    #
-    #    # Fine tuning loop for the backbone + classifier
-    #    for i, (train_x, label_x) in enumerate(
-    #        self.data_loader_full.get_training()
-    #    ):
-    #
-    #        # forward mode
-    #        roi = self.rpnwrapper.propose_regions(train_x)
-    #        features = self.backbone.extractor(train_x)
-    #        features, roi = self.RoI_pool(features, roi)
+        """
 
-    #        # TODO we need to move the backbone call into the training step method for this to work
-    #        # TODO we also need to define "fine tuning" learning rates
-    #        self.classmodel.train_step(
-    #            features,
-    #            roi,
-    #            [self.data_loader_full.decode_label(_label) for _label in label_x],
-    #            update_backbone=True,
-    #            fine_tuning=True
-    #        )
-    #
-    #
-    #     # Now copy over the improved backbone weights to the RPN
-    #     self.bacbone_rpn.network.set_weights(self.backbone.network.get_weights)
-    #
-    #     # TODO add a fine_tuning kwarg to the rpn training
-    #     self.rpnwrapper.train_rpn(
-    #        self.data_loader_full.get_training(), self.data_loader_full.decode_label, fine_tuning=True
-    #     )
+        # Short circuit if there is nothing to do.
+        if epochs == 0:
+            return
+
+        # Optimizer uses the weight decay and learning rates
+        # from the final base training epoch. Uses the
+        # same clip value and momentum parameters as the classifier
+        # although the gradient clip shouldn't matter here.
+        fine_optimizer = tfa.optimizers.SGDW(
+            learning_rate=self.classifier_learning_rate["values"][-1],
+            weight_decay=self.classifier_weight_decay["values"][-1],
+            momentum=self.classifier_momentum,
+            clipvalue=self.classifier_clipvalue,
+        )
+
+        # Important - free up the backbone weights
+        self.backbone.set_trainable(True)
+
+        # Instantiate the joint model
+        joint_model = jointmodel.JointModel(
+            self.backbone,
+            self.rpnwrapper.rpnmodel,
+            self.roi_pool,
+            self.classmodel,
+        )
+
+        # Compile the joint model using the fine runing optimizer and
+        # the same metrics as the classifier
+        joint_model.compile(
+            optimizer=fine_optimizer,
+            metrics=[
+                evaluation.ThresholdRecall(
+                    _threshold,
+                    self.data_loader_full.decode_label,
+                    name="recall_score_%.2d" % _threshold,
+                )
+                for _threshold in validation_recall_thresholds
+            ],
+        )
+
+        # Run the model fit, like the classifier but with no callbacks because we never touch the learning rate
+        joint_model.fit(
+            self.data_loader_full.get_training(**self.data_kwargs),
+            epochs=epochs,
+            validation_data=self.data_loader_full.get_validation(**self.data_kwargs)
+            if self.debug == 1
+            else None,
+        )
+
+        # Set the backbone where we found it
+        self.backbone.set_trainable(False)
