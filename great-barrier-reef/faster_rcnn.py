@@ -103,6 +103,7 @@ class FasterRCNNWrapper:
         self.classifier_momentum = classifier_momentum
         self.classifier_clipvalue = classifier_clipvalue
         self.validation_recall_thresholds = validation_recall_thresholds
+        self.classifier_augmentation = classifier_augmentation
 
         # Check debug mode is valid
         assert isinstance(self.debug, int) and self.debug in [0, 1, 2]
@@ -133,7 +134,7 @@ class FasterRCNNWrapper:
 
         # This should be instantiated last
         self.instantiate_classifier(
-            classifier_weights, classifier_augmentation, classifier_kwargs
+            classifier_weights, self.classifier_augmentation, classifier_kwargs
         )
 
     def instantiate_data_loaders(self, datapath, do_thumbnail=False):
@@ -497,9 +498,10 @@ class FasterRCNNWrapper:
         joint_model = jointmodel.JointModel(
             self.backbone,
             self.rpnwrapper.rpnmodel,
-            self.roi_pool,
+            self.RoI_pool,
             self.classmodel,
             self.data_loader_full.decode_label,
+            self.classifier_augmentation,
         )
 
         # Compile the joint model using the fine runing optimizer and
@@ -512,7 +514,7 @@ class FasterRCNNWrapper:
                     self.data_loader_full.decode_label,
                     name="recall_score_%.2d" % _threshold,
                 )
-                for _threshold in validation_recall_thresholds
+                for _threshold in self.validation_recall_thresholds
             ],
         )
 
