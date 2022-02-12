@@ -20,12 +20,12 @@ class FasterRCNNWrapper:
         classifier_weights="train",
         classifier_kwargs={},
         classifier_learning_rate={
-            "epochs": [1, 4, 7],
-            "values": [1e-3, 1e-4, 1e-5],
+            "epochs": [1, 4, 7], # last epoch here doesn't do anything
+            "values": [1e-3, 1e-4, 1e-5], # last epoch here doesn't do anything
         },
         classifier_weight_decay={
-            "epochs": [1, 4, 7],
-            "values": [1e-4, 1e-5, 1e-6],
+            "epochs": [1, 4, 7], # last epoch here doesn't do anything
+            "values": [1e-4, 1e-5, 1e-6], # last epoch here doesn't do anything
         },
         classifier_momentum=0.9,
         classifier_clipvalue=1e2,
@@ -485,8 +485,8 @@ class FasterRCNNWrapper:
         # same clip value and momentum parameters as the classifier
         # although the gradient clip shouldn't matter here.
         fine_optimizer = tfa.optimizers.SGDW(
-            learning_rate=self.classifier_learning_rate["values"][-1],
-            weight_decay=self.classifier_weight_decay["values"][-1],
+            learning_rate=self.classifier_learning_rate["values"][-1], # This is almost certainly too slow
+            weight_decay=self.classifier_weight_decay["values"][-1], # This is also too slow
             momentum=self.classifier_momentum,
             clipvalue=self.classifier_clipvalue,
         )
