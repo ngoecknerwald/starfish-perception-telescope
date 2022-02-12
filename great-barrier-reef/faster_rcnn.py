@@ -499,6 +499,7 @@ class FasterRCNNWrapper:
             self.rpnwrapper.rpnmodel,
             self.roi_pool,
             self.classmodel,
+            self.data_loader_full.decode_label,
         )
 
         # Compile the joint model using the fine runing optimizer and

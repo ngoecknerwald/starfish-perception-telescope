@@ -2,7 +2,25 @@ import tensorflow as tf
 
 
 class JointModel(tf.keras.Model):
-    def __init__(self, backbone, rpnmodel, roi_pool, classifier):
+    def __init__(self, backbone, rpnmodel, roi_pool, classmodel, label_decoder):
+        """
+        Dummy model for joint training. Accepts the minimal set of components
+        to make this training work.
+
+        Arguments:
+
+        backbone : backbone.Backbone() subclass
+            Feature extraction backbone used in the Faster R-CNN.
+        rpnmodel : rpn.RPNModel()
+            RPN model, not to be confused with the RPNWrapper() class.
+        roi_pool : roi_pool.RoIPooling()
+            RoI pooling and IoU supression class.
+        classifier : classifier.ClassifierModel()
+            Model containing the classification stages.
+        label_decoder : DataLoader.decode_label()
+            Callable to decode an int label and return annotations.
+
+        """
 
         super().__init__()
 
@@ -10,7 +28,8 @@ class JointModel(tf.keras.Model):
         self.backbone = backbone
         self.rpnmodel = rpnmodel
         self.roi_pool = self.roi_pool
-        self.classifier = classifier
+        self.classmodel = classmodel
+        self.label_decoder = label_decoder
 
     def __del__(self):
         """
@@ -30,60 +49,146 @@ class JointModel(tf.keras.Model):
 
         """
 
-        return None
+        pass
 
     def train_step(self, data):
 
-        images, labels = data
+        """
+        Run a model training step and return metrics and loss.
+        This function is a bit of a kludge in that it calls the
+        feature extraction twice. I can't think of a good way around this.
 
-        pass
+        Arguments:
+
+        data : [tf.Tensor, int]
+            Minibatch of data from the full image data loading classes.
+
+        """
+
+        # Run the feature extractor and decode labels outside the gradient tape
+        features_init = self.backbone(data[0])
+        labels = self.label_decoder(data[1])
+
+        # First we must compute the RoI. This is taken
+        # as a fixed value for the classifier training
+        # and therefore must live outside the gradient tape.
+        roi = self.rpnmodel(features_init, input_images=False, output_images=False)
+
+        # Clip and NMS the RoI, taken out of the class to avoid unnecessary
+        # clipping of the feature map we won't use anyways
+        roi = self.roi_pool._clip_RoI(roi)
+        roi = tf.map_fn(self.roi_pool._IoU_suppression, roi)
+
+        # Next we must accumulate RoI based on the label for the RPN loss.
+        # This also should to live outside the GradientTape().
+        rpn_roi = tf.map_fn(self.rpnmodel._accumulate_roi, labels)
+
+        with tf.GradientTape() as tape:
+
+            # Do this forward pass again with under the watchful eye of the GradientTape()
+            features = self.backbone(data[0])
+
+            # Deal with the RPN: accumulate RoI, forward pass, loss calculation
+            rpn_cls, rpn_bbox = self.rpnmodel.rpn(features, training=True)
+            loss = tf.reduce_sum(
+                tf.map_fn(
+                    self.rpnmodel._compute_loss,
+                    [rpn_cls, rpn_bbox, rpn_roi],
+                    fn_output_signature=(tf.float32),
+                )
+            )
+
+            # Now we're done with the big features map, so pool using
+            # the RoI defined from above
+            features = tf.map_fn(
+                self.roi_pool._pool_rois,
+                (features, roi),
+                fn_output_signature=tf.float32,
+            )
+
+            # Classifier forward pass accumulating loss
+            cls, bbox = self.classmodel.classifier(features, training=True)
+            loss += tf.reduce_sum(
+                tf.map_fn(
+                    self.classmodel._compute_loss,
+                    [cls, bbox, roi, labels],
+                    fn_output_signature=(tf.float32),
+                )
+            )
+
+        gradients = tape.gradient(
+            loss,
+            self.backbone.extractor.trainable_variables
+            + self.rpn.trainable_variables
+            + self.classifier.trainable_variables,
+        )
+
+        self.optimizer.apply_gradients(
+            (grad, var)
+            for grad, var in zip(
+                gradients,
+                self.backbone.extractor.trainable_variables
+                + self.rpn.trainable_variables
+                + self.classifier.trainable_variables,
+            )
+            if grad is not None
+        )
+
+        # Update metrics based on the labels and return loss
+        self.compiled_metrics.update_state(
+            data[1], self.classmodel.call((features, roi))
+        )
+        return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
 
     def test_step(self, data):
 
-        images, labels = data
+        """
+        Run a model test step and return metrics and loss.
 
-        pass
+        Arguments:
 
-    # Finally, we want to instantiate a copy of the backbone that the
-    # RPN will use to propose regions. We will end up fine tuning the
-    # backbone in conjunction with the classification layers and we
-    # don't want the backbone changing under the RPN's feet.
+        data : [tf.Tensor, int]
+            Minibatch of data from the data loading classes.
 
-    # Create a new backbone and copy weights over to make a deep copy
-    # init_args = {"input_shape": None, "weights": None}
-    # self.backbone_rpn = backbone.instantiate(backbone_type, init_args)
-    # self.backbone_rpn.network.set_weights(self.backbone.network.get_weights())
+        """
 
-    # Set self.backbone_rpn trainable=False <- the copy of the backbone fed into the RPN
-    # Set self.backbone trainable = True <- the copy of the backbone fed into the classifier
+        # Run the feature extractor and decode labels
+        features = self.backbone(data[0])
+        labels = self.label_decoder(data[1])
 
-    # for i in range(epochs):
-    #
-    #    # Fine tuning loop for the backbone + classifier
-    #    for i, (train_x, label_x) in enumerate(
-    #        self.data_loader_full.get_training()
-    #    ):
-    #
-    #        # forward mode
-    #        roi = self.rpnwrapper.propose_regions(train_x)
-    #        features = self.backbone.extractor(train_x)
-    #        features, roi = self.RoI_pool(features, roi)
+        # Deal with the RPN: accumulate RoI, forward pass, loss calculation
+        rpn_roi = tf.map_fn(self.rpnmodel._accumulate_roi, labels)
+        rpn_cls, rpn_bbox = self.rpnmodel.rpn(features, training=False)
+        loss = tf.reduce_sum(
+            tf.map_fn(
+                self.rpnmodel._compute_loss,
+                [rpn_cls, rpn_bbox, rpn_roi],
+                fn_output_signature=(tf.float32),
+            )
+        )
 
-    #        # TODO we need to move the backbone call into the training step method for this to work
-    #        # TODO we also need to define "fine tuning" learning rates
-    #        self.classmodel.train_step(
-    #            features,
-    #            roi,
-    #            [self.data_loader_full.decode_label(_label) for _label in label_x],
-    #            update_backbone=True,
-    #            fine_tuning=True
-    #        )
-    #
-    #
-    #     # Now copy over the improved backbone weights to the RPN
-    #     self.bacbone_rpn.network.set_weights(self.backbone.network.get_weights)
-    #
-    #     # TODO add a fine_tuning kwarg to the rpn training
-    #     self.rpnwrapper.train_rpn(
-    #        self.data_loader_full.get_training(), self.data_loader_full.decode_label, fine_tuning=True
-    #     )
+        # Loop over images accumulating RoI proposals in forward mode
+        features, roi = self.roi_pool(
+            (
+                features,
+                self.rpnwrapper.propose_regions(
+                    features, input_images=False, output_images=False
+                ),
+            )
+        )
+
+        # Classifier forward pass accumulating loss
+        cls, bbox = self.classmodel.classifier(features, training=False)
+        loss += tf.reduce_sum(
+            tf.map_fn(
+                self.classmodel._compute_loss,
+                [cls, bbox, roi, labels],
+                fn_output_signature=(tf.float32),
+            )
+        )
+
+        # Update metrics based on the labels and return loss
+        self.compiled_metrics.update_state(
+            data[1], self.classmodel.call((features, roi))
+        )
+        return {"loss": loss, **{m.name: m.result() for m in self.metrics}}
