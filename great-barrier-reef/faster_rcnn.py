@@ -517,7 +517,7 @@ class FasterRCNNWrapper:
             self.backbone,
             self.rpnwrapper.rpnmodel,
             self.data_loader_full.decode_label,
-            self.rpnmodel.rpn.augmentation,
+            self.rpnwrapper.rpnmodel.training_params,
         )
 
         # Compile the joint model using the fine runing optimizer and
@@ -579,9 +579,4 @@ class FasterRCNNWrapper:
             validation_data=self.data_loader_full.get_validation(**self.data_kwargs)
             if self.debug == 1
             else None,
-            callbacks=[
-                callback.LearningRateCallback(
-                    classifier_learning_rate, classifier_weight_decay
-                )
-            ],
         )
