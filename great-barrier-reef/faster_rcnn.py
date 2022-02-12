@@ -32,8 +32,8 @@ class FasterRCNNWrapper:
         classifier_augmentation={
             "zoom": 0.01,
             "rotation": 0.01,
-            "gaussian": 1.0,
-            "contrast": 0.1,
+            "gaussian": 5.0,
+            "contrast": 0.25,
         },
         validation_recall_thresholds=[0.1, 0.25, 0.5, 0.75, 0.9],
         debug=1,

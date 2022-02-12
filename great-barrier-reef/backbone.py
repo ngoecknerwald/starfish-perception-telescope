@@ -127,11 +127,11 @@ class Backbone(tf.keras.layers.Layer):
         fit_kwargs={},
         return_history=False,
         training_params={
-            "zoom": (-0.25, 0.25),
+            "zoom": (-0.5, 0.5),
             "flip": "horizontal",
-            "gaussian": 1.0,
-            "rotation": 0.1,
-            "contrast": 0.1,
+            "gaussian": 5.0,
+            "rotation": 0.25,
+            "contrast": 0.25,
             "dropout": 0.5,
         },
     ):
