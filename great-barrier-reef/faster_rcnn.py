@@ -474,7 +474,7 @@ class FasterRCNNWrapper:
         )
 
     def do_fine_tuning(
-        self, epochs, learning_rate=1e-5, weight_decay=1e-6, momentum=0.9, clipvalue=1e2
+        self, epochs, learning_rate=1e-5, weight_decay=1e-7, momentum=0.9, clipvalue=1e2
     ):
         """
         Free up the backbone and run a joint training routine.
