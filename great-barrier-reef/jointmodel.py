@@ -202,9 +202,7 @@ class JointModel(tf.keras.Model):
         features_pool, roi = self.roi_pool(
             (
                 features,
-                self.rpnwrapper.propose_regions(
-                    features, input_images=False, output_images=False
-                ),
+                self.rpnmodel(features, input_images=False, output_images=False),
             )
         )
 
