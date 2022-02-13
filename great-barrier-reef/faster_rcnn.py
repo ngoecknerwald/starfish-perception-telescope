@@ -513,16 +513,17 @@ class FasterRCNNWrapper:
         self.backbone.set_trainable(True)
 
         # Instantiate the joint model
-        joint_model = jointmodel.JointModel(
-            self.backbone,
-            self.rpnwrapper.rpnmodel,
-            self.data_loader_full.decode_label,
-            self.rpnwrapper.rpnmodel.training_params,
-        )
+        if not hasattr(self, "joint_model"):
+            self.joint_model = jointmodel.JointModel(
+                self.backbone,
+                self.rpnwrapper.rpnmodel,
+                self.data_loader_full.decode_label,
+                self.rpnwrapper.rpnmodel.training_params,
+            )
 
         # Compile the joint model using the fine runing optimizer and
         # the same metrics as the classifier
-        joint_model.compile(
+        self.joint_model.compile(
             optimizer=tfa.optimizers.SGDW(
                 learning_rate=learning_rate,
                 weight_decay=weight_decay,
@@ -539,7 +540,7 @@ class FasterRCNNWrapper:
         )
 
         # Run the model fit, like the classifier but with no callbacks because we never touch the learning rate
-        joint_model.fit(
+        self.joint_model.fit(
             self.data_loader_full.get_training(**self.data_kwargs),
             epochs=epochs,
             validation_data=self.data_loader_full.get_validation(**self.data_kwargs)
