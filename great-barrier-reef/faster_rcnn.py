@@ -355,14 +355,14 @@ class FasterRCNNWrapper:
             classifier_weights.lower() == "train"
         ):  # Do the first order training of the classification weights
 
-            self.classmodel.compile(
-                optimizer=tfa.optimizers.SGDW(
-                    learning_rate=self.classifier_learning_rate["values"][0],
-                    weight_decay=self.classifier_weight_decay["values"][0],
-                    momentum=self.classifier_momentum,
-                    clipvalue=self.classifier_clipvalue,
-                ),
-                metrics=[
+            self.class_optimizer = tfa.optimizers.SGDW(
+                learning_rate=self.classifier_learning_rate["values"][0],
+                weight_decay=self.classifier_weight_decay["values"][0],
+                momentum=self.classifier_momentum,
+                clipvalue=self.classifier_clipvalue,
+            )
+            self.class_metrics = (
+                [
                     evaluation.ThresholdRecall(
                         _threshold,
                         self.data_loader_full.decode_label,
@@ -370,6 +370,10 @@ class FasterRCNNWrapper:
                     )
                     for _threshold in self.validation_recall_thresholds
                 ],
+            )
+
+            self.classmodel.compile(
+                optimizer=self.class_optimizer, metrics=self.class_metrics
             )
 
             self.classmodel.fit(
@@ -474,7 +478,7 @@ class FasterRCNNWrapper:
         )
 
     def do_fine_tuning(
-        self, epochs, learning_rate=1e-5, weight_decay=1e-7, momentum=0.9, clipvalue=1e2
+        self, epochs, learning_rate=1e-5, weight_decay=1e-7, momentum=0.9, clipvalue=1e1
     ):
         """
         Free up the backbone and run a joint training routine.
@@ -496,12 +500,79 @@ class FasterRCNNWrapper:
         clipvalue : float
             Gradient clipping in the optimizer.
 
+        Note that the optimizer parameters can be set exactly once, changing them subsequently
+        has no impact.
 
         """
 
         # Short circuit if there is nothing to do.
         if epochs == 0:
             return
+
+        # Sanity checking
+        if hasattr(self, "class_optimizer"):
+            raise ValueError(
+                "Cannot recompile a model with a new optimizer, reinstantiate the overall FasterRCNNWrapper()."
+            )
+
+        # Instantiate the joint model
+        # and optimizer classes
+
+        if not hasattr(self, "joint_model"):
+
+            self.joint_model = jointmodel.JointModel(
+                self.backbone,
+                self.rpnwrapper.rpnmodel,
+                self.data_loader_full.decode_label,
+                self.rpnwrapper.rpnmodel.augmentation,
+            )
+            self.joint_optimizer = (
+                tfa.optimizers.SGDW(
+                    learning_rate=learning_rate,
+                    weight_decay=weight_decay,
+                    momentum=momentum,
+                    clipvalue=clipvalue,
+                ),
+            )
+            self.joint_metrics = (
+                [
+                    evaluation.TopNRegionsRecall(
+                        self.rpnwrapper.top_n_recall,
+                        self.data_loader_full.decode_label,
+                        name="top%d_recall" % self.rpnwrapper.top_n_recall,
+                    )
+                ],
+            )
+
+            self.joint_model.compile(
+                optimizer=self.joint_optimizer, metrics=self.joint_metrics
+            )
+
+        if not hasattr(self, "class_optimizer_fine"):
+
+            self.class_optimizer_fine = (
+                tfa.optimizers.SGDW(
+                    learning_rate=learning_rate,
+                    weight_decay=weight_decay,
+                    momentum=momentum,
+                    clipvalue=clipvalue,
+                ),
+            )
+
+            self.class_metrics_fine = (
+                [
+                    evaluation.ThresholdRecall(
+                        _threshold,
+                        self.data_loader_full.decode_label,
+                        name="recall_score_%.2d" % _threshold,
+                    )
+                    for _threshold in self.validation_recall_thresholds
+                ],
+            )
+
+            self.classmodel.compile(
+                optimizer=self.class_optimizer_fine, metrics=self.class_metrics_fine
+            )
 
         ###########
         #
@@ -512,32 +583,8 @@ class FasterRCNNWrapper:
         # Important - free up the backbone weights
         self.backbone.set_trainable(True)
 
-        # Instantiate the joint model
-        if not hasattr(self, "joint_model"):
-            self.joint_model = jointmodel.JointModel(
-                self.backbone,
-                self.rpnwrapper.rpnmodel,
-                self.data_loader_full.decode_label,
-                self.rpnwrapper.rpnmodel.augmentation,
-            )
-
         # Compile the joint model using the fine runing optimizer and
         # the same metrics as the classifier
-        self.joint_model.compile(
-            optimizer=tfa.optimizers.SGDW(
-                learning_rate=learning_rate,
-                weight_decay=weight_decay,
-                momentum=momentum,
-                clipvalue=clipvalue,
-            ),
-            metrics=[
-                evaluation.TopNRegionsRecall(
-                    self.rpnwrapper.top_n_recall,
-                    self.data_loader_full.decode_label,
-                    name="top%d_recall" % self.rpnwrapper.top_n_recall,
-                )
-            ],
-        )
 
         # Run the model fit, like the classifier but with no callbacks because we never touch the learning rate
         self.joint_model.fit(
@@ -556,23 +603,6 @@ class FasterRCNNWrapper:
         # Now retrain the classifier
         #
         ###########
-
-        self.classmodel.compile(
-            optimizer=tfa.optimizers.SGDW(
-                learning_rate=learning_rate,
-                weight_decay=weight_decay,
-                momentum=momentum,
-                clipvalue=clipvalue,
-            ),
-            metrics=[
-                evaluation.ThresholdRecall(
-                    _threshold,
-                    self.data_loader_full.decode_label,
-                    name="recall_score_%.2d" % _threshold,
-                )
-                for _threshold in self.validation_recall_thresholds
-            ],
-        )
 
         self.classmodel.fit(
             self.data_loader_full.get_training(**self.data_kwargs),
