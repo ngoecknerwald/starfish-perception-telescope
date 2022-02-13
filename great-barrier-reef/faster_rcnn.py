@@ -526,23 +526,20 @@ class FasterRCNNWrapper:
                 self.data_loader_full.decode_label,
                 self.rpnwrapper.rpnmodel.augmentation,
             )
-            self.joint_optimizer = (
-                tfa.optimizers.SGDW(
-                    learning_rate=learning_rate,
-                    weight_decay=weight_decay,
-                    momentum=momentum,
-                    clipvalue=clipvalue,
-                ),
+            self.joint_optimizer = tfa.optimizers.SGDW(
+                learning_rate=learning_rate,
+                weight_decay=weight_decay,
+                momentum=momentum,
+                clipvalue=clipvalue,
             )
-            self.joint_metrics = (
-                [
-                    evaluation.TopNRegionsRecall(
-                        self.rpnwrapper.top_n_recall,
-                        self.data_loader_full.decode_label,
-                        name="top%d_recall" % self.rpnwrapper.top_n_recall,
-                    )
-                ],
-            )
+
+            self.joint_metrics = [
+                evaluation.TopNRegionsRecall(
+                    self.rpnwrapper.top_n_recall,
+                    self.data_loader_full.decode_label,
+                    name="top%d_recall" % self.rpnwrapper.top_n_recall,
+                )
+            ]
 
             self.joint_model.compile(
                 optimizer=self.joint_optimizer, metrics=self.joint_metrics
@@ -550,25 +547,21 @@ class FasterRCNNWrapper:
 
         if not hasattr(self, "class_optimizer_fine"):
 
-            self.class_optimizer_fine = (
-                tfa.optimizers.SGDW(
-                    learning_rate=learning_rate,
-                    weight_decay=weight_decay,
-                    momentum=momentum,
-                    clipvalue=clipvalue,
-                ),
+            self.class_optimizer_fine = tfa.optimizers.SGDW(
+                learning_rate=learning_rate,
+                weight_decay=weight_decay,
+                momentum=momentum,
+                clipvalue=clipvalue,
             )
 
-            self.class_metrics_fine = (
-                [
-                    evaluation.ThresholdRecall(
-                        _threshold,
-                        self.data_loader_full.decode_label,
-                        name="recall_score_%.2d" % _threshold,
-                    )
-                    for _threshold in self.validation_recall_thresholds
-                ],
-            )
+            self.class_metrics_fine = [
+                evaluation.ThresholdRecall(
+                    _threshold,
+                    self.data_loader_full.decode_label,
+                    name="recall_score_%.2d" % _threshold,
+                )
+                for _threshold in self.validation_recall_thresholds
+            ]
 
             self.classmodel.compile(
                 optimizer=self.class_optimizer_fine, metrics=self.class_metrics_fine
