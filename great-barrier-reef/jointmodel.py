@@ -36,7 +36,6 @@ class JointModel(tf.keras.Model):
         self.backbone = backbone
         self.rpnmodel = rpnmodel
         self.label_decoder = label_decoder
-        self.augmentation_params = augmentation_params
         self.augmentation = augmentation
 
     def call(self, data):
