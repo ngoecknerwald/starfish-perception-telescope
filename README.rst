@@ -5,7 +5,7 @@ Starfish Detector
 This repository contains our solution to the Kaggle 
 `TensorFlow - Help Protect the Great Barrier Reef <https://www.kaggle.com/c/tensorflow-great-barrier-reef/>`_
 competition. We have implemented a slightly modified version of the 
-`Faster R-CNN <https://arxiv.org/pdf/1506.01497.pdf/>`_ algorithm for object detection.
+`Faster R-CNN <https://arxiv.org/pdf/1506.01497.pdf>`_ algorithm for object detection.
 
 Authors
 =======
