@@ -36,7 +36,7 @@ class FasterRCNNWrapper:
             ],
             "values": [
                 1e-4,
-                1e-5,
+                3e-6,
             ],
         },
         classifier_momentum=0.9,
