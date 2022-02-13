@@ -116,7 +116,7 @@ Architecture improvements
 
 - **Downweight correlations between RoI in the classifier**: We observed that the classifier had a tendency to over-learn the (real) correlation between input RoI due to the fact that starfish tend to cluster spatially in the training data. This can be mitigated by replacing the output dense layer with another 1x1 convolution and a (regularized) dense correction term to account for the real correlations between RoI.
 
-- **Learn temporal correlations**: There are strong correlations between subsequent images in the training videos which could be exploited by a two-stage detection system. One simple way to do this would be to pass the RoI and pooled features as well as a smoothly varying spatial function from the last ``n ~ 4`` images to the final dense layer in the classifier. This would require another training epoch and data loading interface that does not randomly reshuffle the images.
+- **Learn temporal correlations**: There are strong correlations between subsequent images in the training videos which could be exploited by a two-stage detection system. One simple way to do this would be to pass the RoI and pooled features as well as a smoothly varying spatial function from the last ``n ~ 4`` images to the final dense layer in the classifier. This would require another set of training epochs and a data loading interface that does not randomly reshuffle the images.
 
 Dataset improvements
 --------------------
