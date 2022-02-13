@@ -116,6 +116,19 @@ class Backbone(tf.keras.layers.Layer):
         self.network.set_weights(local_network.get_weights())
         del local_network
 
+    def set_trainable(self, trainable):
+        """
+        Set the trainable flag on the backbone network.
+
+        Arguments:
+
+        trainable : bool
+            Trainable status of the feature extractor.
+
+        """
+
+        self.network.trainable = trainable
+
     def pretrain(
         self,
         training_data,

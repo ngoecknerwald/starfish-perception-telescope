@@ -193,13 +193,10 @@ class RPNModel(tf.keras.Model):
         # Call the RPN
         cls, bbox = self.rpn(features, training=False)
 
-        def _local_loss(data):
-            return self._compute_loss(data, update_positive_weight=False)
-
         # Compute the loss using the classification scores and bounding boxes
         loss = tf.reduce_sum(
             tf.map_fn(
-                _local_loss,
+                self._compute_loss,
                 [cls, bbox, rois],
                 fn_output_signature=(tf.float32),
             )
@@ -238,9 +235,6 @@ class RPNModel(tf.keras.Model):
         # Loop over images accumulating RoI proposals
         rois = tf.map_fn(self._accumulate_roi, labels)
 
-        def _local_loss(data):
-            return self._compute_loss(data, update_positive_weight=True)
-
         # Compute loss
         with tf.GradientTape() as tape:
 
@@ -250,7 +244,7 @@ class RPNModel(tf.keras.Model):
             # Compute the loss using the classification scores and bounding boxes
             loss = tf.reduce_sum(
                 tf.map_fn(
-                    _local_loss,
+                    self._compute_loss,
                     [cls, bbox, rois],
                     fn_output_signature=(tf.float32),
                 )
@@ -456,7 +450,7 @@ class RPNModel(tf.keras.Model):
         return tf.convert_to_tensor(rois)
 
     @tf.function
-    def _compute_loss(self, data, update_positive_weight=False):
+    def _compute_loss(self, data):
 
         """
         Compute the loss function for a set of classification
@@ -484,8 +478,6 @@ class RPNModel(tf.keras.Model):
         tf.debugging.assert_all_finite(cls, "NaN encountered in RPN training.")
 
         # No L2 regularization loss for now
-        # loss = tf.nn.l2_loss(bbox) / (1000.0 * tf.size(bbox, out_type=tf.float32))
-        # loss += tf.nn.l2_loss(cls) / (1000.0 * tf.size(bbox, out_type=tf.float32))
         loss = 0.0
 
         # Count how many positive valid boxes we have
@@ -550,9 +542,8 @@ class RPNModel(tf.keras.Model):
                     pass
 
         # Exponential moving average update
-        if update_positive_weight:
-            self._positive.assign(0.99 * self._positive + n_positive)
-            self._negative.assign(0.99 * self._negative + n_negative)
+        self._positive.assign(0.99 * self._positive + n_positive)
+        self._negative.assign(0.99 * self._negative + n_negative)
 
         return loss
 
@@ -660,7 +651,7 @@ class RPNWrapper:
         },
         weight_decay={
             "epochs": [1, 4, 7],
-            "values": [1e-4, 1e-5, 1e-6],
+            "values": [1e-4, 3e-6, 1e-7],
         },
         momentum=0.9,
         clipvalue=1e3,
@@ -733,6 +724,7 @@ class RPNWrapper:
         # Optimizer parameters
         self.momentum = momentum
         self.clipvalue = clipvalue
+        self.top_n_recall = top_n_recall
 
         # Optimizer
         self.optimizer = tfa.optimizers.SGDW(
