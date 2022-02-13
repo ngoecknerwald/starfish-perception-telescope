@@ -89,7 +89,12 @@ class JointModel(tf.keras.Model):
         # Next augment the data before taking gradients
         data_aug = self.augmentation(data[0])
 
-        with tf.GradientTape() as tape:
+        with tf.GradientTape(watch_accessed_variables=False) as tape:
+
+            tape.watch(
+                self.backbone.network.trainable_variables
+                + self.rpnmodel.rpn.trainable_variables
+            )
 
             # Do this forward pass again with under the watchful eye of the GradientTape()
             features = self.backbone(data_aug)
@@ -107,7 +112,7 @@ class JointModel(tf.keras.Model):
 
         gradients = tape.gradient(
             loss,
-            self.backbone.extractor.trainable_variables
+            self.backbone.network.trainable_variables
             + self.rpnmodel.rpn.trainable_variables,
         )
 
@@ -115,7 +120,7 @@ class JointModel(tf.keras.Model):
             (grad, var)
             for grad, var in zip(
                 gradients,
-                self.backbone.extractor.trainable_variables
+                self.backbone.network.trainable_variables
                 + self.rpnmodel.rpn.trainable_variables,
             )
             if grad is not None
