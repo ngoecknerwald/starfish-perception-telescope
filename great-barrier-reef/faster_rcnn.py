@@ -20,23 +20,23 @@ class FasterRCNNWrapper:
         classifier_weights="train",
         classifier_kwargs={},
         classifier_learning_rate={
-            "epochs": [
-                1,
-                4,
-            ],
+            "epochs": [1, 4, 7],
             "values": [
                 1e-3,
                 1e-4,
+                1e-5,
             ],
         },
         classifier_weight_decay={
             "epochs": [
                 1,
                 4,
+                7,
             ],
             "values": [
                 1e-4,
-                3e-6,
+                1e-5,
+                1e-6,
             ],
         },
         classifier_momentum=0.9,
@@ -316,7 +316,7 @@ class FasterRCNNWrapper:
         elif "epochs" in classifier_kwargs.keys():
             epochs = classifier_kwargs.pop("epochs")
         else:
-            epochs = 6
+            epochs = 9
 
         # Note that this is associated with self.backbone whereas
         # the rpn is associated with self.backbone_rpn
