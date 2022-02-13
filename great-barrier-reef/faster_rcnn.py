@@ -384,7 +384,7 @@ class FasterRCNNWrapper:
                 else None,
                 callbacks=[
                     callback.LearningRateCallback(
-                        classifier_learning_rate, classifier_weight_decay
+                        self.classifier_learning_rate, self.classifier_weight_decay
                     )
                 ],
             )
