@@ -3,9 +3,9 @@ Starfish Detector
 -----------------
 
 This repository contains our solution to the Kaggle 
-`TensorFlow - Help Protect the Great Barrier Reef<https://www.kaggle.com/c/tensorflow-great-barrier-reef>`_
+`TensorFlow - Help Protect the Great Barrier Reef <https://www.kaggle.com/c/tensorflow-great-barrier-reef/>`_
 competition. We have implemented a slightly modified version of the 
-`Faster R-CNN<https://arxiv.org/pdf/1506.01497.pdf>`_ algorithm for object detection.
+`Faster R-CNN <https://arxiv.org/pdf/1506.01497.pdf/>`_ algorithm for object detection.
 
 Authors
 =======
@@ -127,7 +127,7 @@ Architecture improvements
 fact that the backbone stride was on the scale of the starfish in the images themselves. One obvious remedy
 is to use a convolutional backbone with a smaller effective stride. This could be done by taking the 
 penultimate layer of a pretrained ``VGG-16`` and stacking it with an upsampled version of the final 
-convolutional layer. This has been shown to work in `An Improved Faster R-CNN for Small Object Detection <https://ieeexplore.ieee.org/document/8786135>`_.
+convolutional layer. This has been shown to work in `An Improved Faster R-CNN for Small Object Detection <https://ieeexplore.ieee.org/document/8786135/>`_.
 
 #. **Use GIoU loss for localization**: This has been shown to improve localization in Faster R-CNN algorithms 
 relative to the L1 bounding box loss that we used. We used this in early versions of the network but 
