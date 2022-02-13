@@ -7,7 +7,7 @@ class JointModel(tf.keras.Model):
         backbone,
         rpnmodel,
         label_decoder,
-        augmentation_params,
+        augmentation,
     ):
         """
         Dummy model for joint training. Accepts the minimal set of components
@@ -25,8 +25,8 @@ class JointModel(tf.keras.Model):
             Model containing the classification stages.
         label_decoder : DataLoader.decode_label()
             Callable to decode an int label and return annotations.
-        augmentation_params : dict
-            Parameters to augment the input images. See the Classifier class.
+        augmentation : tf.keras.sequential
+            Parameters to augment the input images. Imported wholesale from the RPN.
 
         """
 
@@ -37,25 +37,7 @@ class JointModel(tf.keras.Model):
         self.rpnmodel = rpnmodel
         self.label_decoder = label_decoder
         self.augmentation_params = augmentation_params
-
-        self.augmentation = tf.keras.Sequential(
-            [
-                tf.keras.layers.RandomZoom(self.augmentation_params["zoom"]),
-                tf.keras.layers.RandomRotation(self.augmentation_params["rotation"]),
-                tf.keras.layers.GaussianNoise(self.augmentation_params["gaussian"]),
-                tf.keras.layers.RandomContrast(self.augmentation_params["contrast"]),
-            ]
-        )
-
-    def __del__(self):
-        """
-        Dummy method to ensure that the constituent compoents
-        of the model aren't deleted because we still need them.
-        This model class has a somewhat transient existence.
-
-        """
-
-        pass
+        self.augmentation = augmentation
 
     def call(self, data):
         """

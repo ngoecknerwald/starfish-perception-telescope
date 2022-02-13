@@ -518,7 +518,7 @@ class FasterRCNNWrapper:
                 self.backbone,
                 self.rpnwrapper.rpnmodel,
                 self.data_loader_full.decode_label,
-                self.rpnwrapper.rpnmodel.training_params,
+                self.rpnwrapper.rpnmodel.augmentation,
             )
 
         # Compile the joint model using the fine runing optimizer and
