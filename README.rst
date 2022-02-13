@@ -22,6 +22,7 @@ Guide to the Code
 #. ``geometry.py`` : IoU and related methods used elsewhere.
 #. ``roi_pooling.py`` : Class for the RoI pooling and IoU suppression routines attached to the output of the RPN.
 #. ``rpn.py`` : Region proposal network and wrapper classes.
+#. ``jointmodel.py`` : Class for jointly optimizing the RPN and backbone.
 
 To instantiate the model and train from pretrained ImageNet weights one calls:
 

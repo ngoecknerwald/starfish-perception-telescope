@@ -216,10 +216,6 @@ class DataLoaderThumbnail(DataLoader):
             # Now, work through the rows in the training labels and make cuts
             for index in range(len(self.labels)):
 
-                # Monitor progress
-                if index % 1000 == 0:
-                    print(index)
-
                 # Grab the annotations and the file name
                 annotation = json.loads(
                     self.labels["annotations"][index].replace("'", '"')
