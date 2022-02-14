@@ -1,6 +1,6 @@
------------------
-Starfish Detector
------------------
+-----------------------------------
+Starfish Perception Telescope (SPT)
+-----------------------------------
 
 This repository contains our solution to the Kaggle 
 `TensorFlow - Help Protect the Great Barrier Reef <https://www.kaggle.com/c/tensorflow-great-barrier-reef/>`_
@@ -93,26 +93,25 @@ ground truth labels.
    :scale: 50 %
    :alt: Validation sample 1.
 
+    Caption.
+
 .. figure:: validation/val_2.png
    :scale: 50 %
    :alt: Validation sample 2.
 
-   In these image we can see that the network is able to reliably detect the presence of starfish, but struggles
-   with localization at feature scales on the size of the backbone stride.
+    Caption.
 
 .. figure:: validation/val_3.png
    :scale: 50 %
    :alt: Validation sample 3.
 
-   In these image we can see the classifier confidently reporting a false positive. Note the strong correlation
-   between classifier scores for disconnected RoI.
+    Caption.
    
 .. figure:: validation/val_4.png
    :scale: 50 %
    :alt: Validation sample 4.
 
-   This image contains a feature (bubbles) that did not exist in the training set. The RPN reports seemingly random 
-   guesses while the classifier sends all probabilities to zero.
+    Caption.
 
 These results represent the network state after three cycles of fine tuning. It is possible that further training will
 improve the localization and detection of the network. The losses and recall metrics have not plateaued at this point
@@ -146,11 +145,9 @@ Architecture improvements
 
 - **Use a YOLO architecture**: A single stage detection network could have been simpler to implement and faster to train. 
 
-- **Downweight correlations between RoI in the classifier**: We observed that the classifier had a tendency to over-learn the real correlation between input RoI due to the fact that starfish tend to cluster spatially in the training data. This can be mitigated by replacing the output dense layer with another 1x1 convolution and a (regularized) dense correction term to account for the real correlations between RoI.
-
 - **Learn temporal correlations**: There are strong correlations between subsequent images in the training videos which could be exploited by a two-stage detection system. One simple way to do this would be to pass the RoI and pooled features as well as a smoothly varying spatial function from the last ``n ~ 4`` images to the final dense layer in the classifier. This would require another set of training epochs and a data loading interface that does not randomly reshuffle the images.
 
 Dataset improvements
 --------------------
 
-- **Dropping background-only images**: The input dataset was quite unbalanced with many more background-only images than images containing starfish. We ended up ignoring many of these images by enforcing a balanced sample in the RPN and classifier training. This resulted in unnecessary calls to the feature extraction backbone which slowed down trainign. Simply ignoring those images alltogether could have resulted in faster training epochs.
+- **Dropping background-only images**: The input dataset was quite unbalanced with many more background-only images than images containing starfish. We ended up mostly ignoring many of these images by enforcing a balanced sample in the RPN and classifier training. This resulted in unnecessary calls to the feature extraction backbone which slowed down trainign. Simply ignoring those images alltogether could have resulted in faster training epochs.
