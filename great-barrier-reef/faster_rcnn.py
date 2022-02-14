@@ -471,8 +471,8 @@ class FasterRCNNWrapper:
     def _region_to_string(region):
         return "%02f %d %d %d %d" % (
             region["score"],
-            int(region["x"]),
             int(region["y"]),
+            int(region["x"]),
             int(region["width"]),
             int(region["height"]),
         )
