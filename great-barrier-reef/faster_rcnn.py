@@ -469,7 +469,7 @@ class FasterRCNNWrapper:
     # From code other people have posted the order seems to be (score, x, y, w, h)
     @staticmethod
     def _region_to_string(region):
-        return "%02f %d %d %d %d" % (
+        return "%.2f %d %d %d %d" % (
             region["score"],
             int(region["y"]),
             int(region["x"]),
