@@ -40,7 +40,7 @@ class FasterRCNNWrapper:
             ],
         },
         classifier_momentum=0.9,
-        classifier_clipvalue=1e1,
+        classifier_clipvalue=1e2,
         classifier_augmentation={
             "zoom": 0.01,
             "rotation": 0.01,
@@ -478,7 +478,7 @@ class FasterRCNNWrapper:
         )
 
     def do_fine_tuning(
-        self, epochs, learning_rate=1e-5, weight_decay=1e-7, momentum=0.9, clipvalue=1e1
+        self, epochs, learning_rate=1e-5, weight_decay=1e-7, momentum=0.9, clipvalue=1e2
     ):
         """
         Free up the backbone and run a joint training routine.
