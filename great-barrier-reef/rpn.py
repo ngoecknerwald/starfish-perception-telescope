@@ -354,15 +354,17 @@ class RPNModel(tf.keras.Model):
         yy = geometry.batch_sort(flatten(yy), argsort, self.n_roi_output)
         ww = geometry.batch_sort(flatten(ww), argsort, self.n_roi_output)
         hh = geometry.batch_sort(flatten(hh), argsort, self.n_roi_output)
+        
+        objectness = geometry.batch_sort(objectness, argsort, self.n_roi_output)
 
         # Return in feature space
         if not output_images:
-            output = tf.stack([xx, yy, ww, hh], axis=-1)
+            output = tf.stack([xx, yy, ww, hh, objectness], axis=-1)
         else:
             # Convert to image plane
             x, y = self.backbone.feature_coords_to_image_coords(xx, yy)
             w, h = self.backbone.feature_coords_to_image_coords(ww, hh)
-            output = tf.stack([x, y, w, h], axis=-1)
+            output = tf.stack([x, y, w, h, objectness], axis=-1)
 
         return output
 
@@ -806,3 +808,59 @@ class RPNWrapper:
         """
 
         return self.rpnmodel(images, **kwargs)
+        # Unstack into individual coordinates
+
+    def print_roi(self, roi, positive_threshold=0.5):
+        x, y, w, h, score = tf.unstack(roi, axis=-1)
+
+        # Convert to a python dictionary
+        minibatch_regions = [
+            [
+                {
+                    "x": x[i_image, i_roi].numpy(),
+                    "y": y[i_image, i_roi].numpy(),
+                    "width": w[i_image, i_roi].numpy(),
+                    "height": h[i_image, i_roi].numpy(),
+                    "score": score[i_image, i_roi].numpy(),
+                }
+                for i_roi in range(score.shape[1])
+            ]
+            for i_image in range(score.shape[0])
+        ]
+
+        # Trim the outputs
+        minibatch_return = []
+        for regions in minibatch_regions:
+
+            # Clip regions
+            _regions = [
+                region
+                for region in regions
+                if region["score"] > positive_threshold
+            ]
+            # Sort by objectness
+            _regions = sorted(
+                _regions, key=lambda region: region["score"], reverse=True
+            )
+            minibatch_return.append(
+                " ".join(
+                    [
+                        RPNWrapper._region_to_string(region)
+                        for region in _regions
+                    ]
+                )
+            )
+
+        return minibatch_return
+
+    # Convert the output string to the format expected by the test set evaluation
+    # From code other people have posted the order seems to be (score, x, y, w, h)
+    @staticmethod
+    def _region_to_string(region):
+        return "%.2f %d %d %d %d" % (
+            region["score"],
+            int(region["x"]),
+            int(region["y"]),
+            int(region["width"]),
+            int(region["height"]),
+        )
