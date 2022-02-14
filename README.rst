@@ -107,7 +107,7 @@ ground truth labels.
    In these image we can see the classifier confidently reporting a false positive. Note the strong correlation
    between classifier scores for disconnected RoI.
    
-   .. figure:: validation/val_4.png
+.. figure:: validation/val_4.png
    :scale: 50 %
    :alt: Validation sample 4.
 
