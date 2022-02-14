@@ -544,8 +544,8 @@ class RPNModel(tf.keras.Model):
                     pass
 
             # Exponential moving average update
-            self._positive.assign(0.99 * self._positive + n_positive)
-            self._negative.assign(0.99 * self._negative + n_negative)
+            self._positive.assign(0.999 * self._positive + n_positive)
+            self._negative.assign(0.999 * self._negative + n_negative)
 
         return loss
 
