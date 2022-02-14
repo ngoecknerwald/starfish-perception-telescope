@@ -114,8 +114,9 @@ ground truth labels.
    This image contains a feature (bubbles) that did not exist in the training set. The RPN reports seemingly random 
    guesses while the classifier sends all probabilities to zero.
 
-These results represent the network state after three cycles of fine tuning, it is possible that further training will
-improve the localization and detection of the network. The losses and recall metrics have not plateaued at this point.
+These results represent the network state after three cycles of fine tuning. It is possible that further training will
+improve the localization and detection of the network. The losses and recall metrics have not plateaued at this point
+in the training.
 
 Future directions
 =================
