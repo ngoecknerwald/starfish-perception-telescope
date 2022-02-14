@@ -221,7 +221,7 @@ class ClassifierModel(tf.keras.Model):
         # No L2 regulatization term for now
         loss = 0.0
 
-        for i in tf.range(self.n_proposals, dtype=tf.int64):
+        for i in tf.random.shuffle(tf.range(self.n_proposals, dtype=tf.int64)):
 
             # Count how many positive valid boxes we have from this image
             n_positive = 0.0

@@ -480,12 +480,14 @@ class RPNModel(tf.keras.Model):
         # No L2 regularization loss for now
         loss = 0.0
 
-        # Count how many positive valid boxes we have
-        n_positive = 0.0
-        n_negative = 0.0
+        # Any positive starfish are at the first of the list
+        # from _accumulate_roi, but we need to look at them LAST.
+        # This is necessary to constrain RoI for background-only images
+        for i in range(self.roi_minibatch_per_image, -1, -1):
 
-        # Work one RoI at a time
-        for i in range(self.roi_minibatch_per_image):
+            # Count how many positive valid boxes we have
+            n_positive = 0.0
+            n_negative = 0.0
 
             valid = tf.cast(rois[i, 3], tf.bool)
 
@@ -541,9 +543,9 @@ class RPNModel(tf.keras.Model):
                 else:  # too many negatives, ignore this RoI
                     pass
 
-        # Exponential moving average update
-        self._positive.assign(0.99 * self._positive + n_positive)
-        self._negative.assign(0.99 * self._negative + n_negative)
+            # Exponential moving average update
+            self._positive.assign(0.99 * self._positive + n_positive)
+            self._negative.assign(0.99 * self._negative + n_negative)
 
         return loss
 
