@@ -84,7 +84,38 @@ resulting in substantial accuracy gains.
 Results
 =======
 
-To be determined!
+The following is a representative minibatch of four images from the validation set. The green boxes indicate
+the output of the RPN ordered by objectness, the red boxes indicate the RoI after NMS and size clipping to integer
+(greater than 3) multiples of the backbone stride, black indicate the classifier output, and yellow indicates the
+ground truth labels.
+
+.. figure:: validation/val_1.png
+   :scale: 50 %
+   :alt: Validation sample 1.
+
+.. figure:: validation/val_2.png
+   :scale: 50 %
+   :alt: Validation sample 2.
+
+   In these image we can see that the network is able to reliably detect the presence of starfish, but struggles
+   with localization at feature scales on the size of the backbone stride.
+
+.. figure:: validation/val_3.png
+   :scale: 50 %
+   :alt: Validation sample 3.
+
+   In these image we can see the classifier confidently reporting a false positive. Note the strong correlation
+   between classifier scores for disconnected RoI.
+   
+   .. figure:: validation/val_4.png
+   :scale: 50 %
+   :alt: Validation sample 4.
+
+   This image contains a feature (bubbles) that did not exist in the training set. The RPN reports seemingly random 
+   guesses while the classifier sends all probabilities to zero.
+
+These results represent the network state after three cycles of fine tuning, it is possible that further training will
+improve the localization and detection of the network. The losses and recall metrics have not plateaued at this point.
 
 Future directions
 =================
@@ -103,18 +134,18 @@ Training schedule improvements
 
 - **Assigning different loss penalties for false positives and false negatives**: The competition is scored with an ``F2`` metric averaged over IoU thresholds between 0.3 and 0.8 meaning that false negatives are more of a problem than false positives. This could be accounted for by assigning different loss penalties for the two types of mistakes.
 
-- **Adding noise to the feature extraction pretraining**: We pre-trained the feature extraction backbone convolutional weights on a starfish / background thumbnail classification task. To do this we placed a global average pool and dense layer on the output of the convolutional layers that were subsequently discarded after pre-training. One possible improvement would be to place a Gaussian noise augmentation and an L2 regularization term after the global average pool to create a simpler boundary between starfish and background regions in the backbone output. This would be similar to (and indeed was inspired by) the resampling step in a variational auto-encoder and could result in a more robust final solution.
+- **Adding noise to the feature extraction pre-training**: We pre-trained the feature extraction backbone convolutional weights on a starfish / background thumbnail classification task. To do this we placed a global average pool and dense layer on the output of the convolutional layers that were subsequently discarded after pre-training. One possible improvement would be to place a Gaussian noise augmentation and an L2 regularization term after the global average pool to create a simpler boundary between starfish and background regions in the backbone output. This would be similar to (and indeed was inspired by) the resampling step in a variational auto-encoder and could result in a more robust final solution.
 
 Architecture improvements
 -------------------------
 
 - **Use an upsampled VGG-16 backbone**: Our network struggled somewhat with localization, likely due to the fact that the backbone stride was on the scale of the starfish in the images themselves. One obvious remedy is to use a convolutional backbone with a smaller effective stride. This could be done by taking the penultimate layer of a pretrained ``VGG-16`` and stacking it with an upsampled version of the final convolutional layer. This has been shown to work in `An Improved Faster R-CNN for Small Object Detection <https://ieeexplore.ieee.org/document/8786135/>`_.
 
-- **Use GIoU loss for localization**: This has been shown to improve localization in Faster R-CNN algorithms relative to the L1 bounding box loss that we used. We used this in early versions of the network but dropped it for simplicity.
+- **Use GIoU loss for localization**: This has been shown to improve localization in Faster R-CNN algorithms relative to the L1 bounding box loss that we used. We used `GIoU <https://giou.stanford.edu/>`_ in early versions of the network but later dropped it for simplicity.
 
-- **Use a YOLO architecture**: A single stage detection network would have been simpler to implement and faster to train. 
+- **Use a YOLO architecture**: A single stage detection network could have been simpler to implement and faster to train. 
 
-- **Downweight correlations between RoI in the classifier**: We observed that the classifier had a tendency to over-learn the (real) correlation between input RoI due to the fact that starfish tend to cluster spatially in the training data. This can be mitigated by replacing the output dense layer with another 1x1 convolution and a (regularized) dense correction term to account for the real correlations between RoI.
+- **Downweight correlations between RoI in the classifier**: We observed that the classifier had a tendency to over-learn the real correlation between input RoI due to the fact that starfish tend to cluster spatially in the training data. This can be mitigated by replacing the output dense layer with another 1x1 convolution and a (regularized) dense correction term to account for the real correlations between RoI.
 
 - **Learn temporal correlations**: There are strong correlations between subsequent images in the training videos which could be exploited by a two-stage detection system. One simple way to do this would be to pass the RoI and pooled features as well as a smoothly varying spatial function from the last ``n ~ 4`` images to the final dense layer in the classifier. This would require another set of training epochs and a data loading interface that does not randomly reshuffle the images.
 
