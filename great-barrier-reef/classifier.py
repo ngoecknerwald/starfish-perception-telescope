@@ -221,11 +221,11 @@ class ClassifierModel(tf.keras.Model):
         # No L2 regulatization term for now
         loss = 0.0
 
-        # Count how many positive valid boxes we have
-        n_positive = 0.0
-        n_negative = 0.0
-
         for i in tf.range(self.n_proposals, dtype=tf.int64):
+
+            # Count how many positive valid boxes we have from this image
+            n_positive = 0.0
+            n_negative = 0.0
 
             # Classification score
             cls_select = tf.nn.softmax(cls[i :: self.n_proposals])
@@ -251,9 +251,9 @@ class ClassifierModel(tf.keras.Model):
             else:
                 pass
 
-        # Exponential moving average update
-        self._positive.assign(0.99 * self._positive + n_positive)
-        self._negative.assign(0.99 * self._negative + n_negative)
+            # Exponential moving average update
+            self._positive.assign(0.99 * self._positive + n_positive)
+            self._negative.assign(0.99 * self._negative + n_negative)
 
         return loss
 
