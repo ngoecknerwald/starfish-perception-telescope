@@ -483,7 +483,7 @@ class RPNModel(tf.keras.Model):
         # Any positive starfish are at the first of the list
         # from _accumulate_roi, but we need to look at them LAST.
         # This is necessary to constrain RoI for background-only images
-        for i in range(self.roi_minibatch_per_image, -1, -1):
+        for i in range(self.roi_minibatch_per_image - 1, -1, -1):
 
             # Count how many positive valid boxes we have
             n_positive = 0.0
