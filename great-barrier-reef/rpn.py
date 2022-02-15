@@ -656,7 +656,7 @@ class RPNWrapper:
             "values": [1e-4, 1e-5, 1e-6],
         },
         momentum=0.9,
-        clipvalue=1e3,
+        clipvalue=1e1,
         top_n_recall=32,
         training_params={
             "zoom": 0.01,
