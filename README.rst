@@ -20,7 +20,7 @@ Guide to the Code
 #. ``backbone.py`` : General feature extraction backbone class and subclasses to implement different architectures.
 #. ``callback.py`` : Callback routines for training, used to set the learning rate versus epoch.
 #. ``classifier.py`` : Final output network, note that the training calls live in ``faster_rcnn.py``.
-#. ``combined-runtime.ipynb``: Colab notebook used to run the code.
+#. ``combined_runtime.ipynb``: Colab notebook used to run the code.
 #. ``data_utils.py`` : Classes for interfacing with the dataset and matching annotations with images.
 #. ``evaluation.py`` : Recall metrics used to monitor training progress.
 #. ``faster_rcnn.py`` : High level driver module, instantiates and trains network subcomponents.
