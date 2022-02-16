@@ -97,15 +97,15 @@ network that the region contains a starfish. The yellow boxes indicate ground tr
    :scale: 50 %
    :alt: Validation sample 2.
 
-    In this example we can see the RPN and classifier both miss a starfish that is on the scale
-    of the stride of the ``ResNet50`` convolutional backbone.
+   In this example we can see the RPN and classifier both miss a starfish that is on the scale
+   of the stride of the ``ResNet50`` convolutional backbone.
 
 .. figure:: validation/val_3.png
    :scale: 50 %
    :alt: Validation sample 3.
 
-    Here we see the network correctly identifying a large and visually obvious starfish, however the RPN
-    and classifier layers struggle with localization.
+   Here we see the network correctly identifying a large and visually obvious starfish, however the RPN
+   and classifier layers struggle with localization.
    
 .. figure:: validation/val_4.png
    :scale: 50 %
