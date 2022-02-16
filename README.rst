@@ -97,7 +97,7 @@ network that the region contains a starfish. The yellow boxes indicate ground tr
    :scale: 50 %
    :alt: Validation sample 2.
 
-   In this example we can see the RPN and classifier both miss a starfish that is on the scale
+   In this example we can see the RPN and classifier both miss starfish that are on the scale
    of the stride of the ``ResNet50`` convolutional backbone.
 
 .. figure:: validation/val_3.png
