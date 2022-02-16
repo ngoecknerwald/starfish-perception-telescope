@@ -29,7 +29,7 @@ Guide to the Code
 #. ``rpn.py`` : Region proposal network and wrapper classes.
 #. ``jointmodel.py`` : Class for jointly optimizing the RPN and backbone.
 
-To instantiate the model and train from pretrained ``ImageNet`` weights one calls:
+To instantiate the model with a ``ResNet50`` convolutional backbone pretrained on ``ImageNet`` weights one calls:
 
 .. code-block:: python
     
@@ -59,21 +59,17 @@ The model can also be built with pre-trained and weights saved using the utiliti
     frcnn = faster_rcnn.FasterRCNNWrapper(
         input_shape=(720, 1280, 3),
         datapath = '<path_to_competition_dataset>',
-        backbone_type = 'ResNet50', #InceptionResNetV2 and VGG16 are also supported
+        backbone_type = 'ResNet50',
         backbone_weights = '<backbone_weights>',
         rpn_weights = '<rpn_weights>',
         classifier_weights= '<class_weights>',
     )
 
-There are a large number of configurable hyperparameters described in the various
-docstrings. They have been initialized to reasonable values for the Great Barrier Reef
-dataset.
-
-The code can be fine tuned for a number of epochs by calling:
+The model can be fine tuned for a number of epochs by calling:
 
 .. code-block:: python
 
-    fine_tuning_passes = 3
+    fine_tuning_passes = 4
     epochs_per_pass = 2
 
     for _ in range(fine_tuning_passes):
@@ -81,46 +77,61 @@ The code can be fine tuned for a number of epochs by calling:
 
 resulting in substantial accuracy gains.
 
+There are a large number of configurable hyperparameters described in the various
+docstrings. They have been initialized to reasonable values for the Great Barrier Reef
+dataset. The training and results shown here can be reproduced by running 
+the notebook ``combined_runtime.ipynb``.
+
+We trained this model on a Google Colab GPU for approximately 16 hours including model fine tuning.
+
 Results
 =======
 
-The following is a representative minibatch of four images from the validation set. The green boxes indicate
-the output of the RPN ordered by objectness, the red boxes indicate the RoI after NMS and size clipping to integer
-(greater than 3) multiples of the backbone stride, black indicate the classifier output, and yellow indicates the
-ground truth labels.
-
-.. figure:: validation/val_1.png
-   :scale: 50 %
-   :alt: Validation sample 1.
-
-    Caption.
+The following is a representative minibatch of four images from the held out **validation** set. 
+The red boxes indicate the RPN outputs after IoU supression to remove duplicate regions of interest and size 
+clipping to integer (greater than 3) multiples of the backbone stride. The black boxes indicate the final 
+classifier output. In both cases the width of the line indicates the probability assigned by the 
+network that the region contains a starfish. The yellow boxes indicate ground truth labels.
 
 .. figure:: validation/val_2.png
    :scale: 50 %
    :alt: Validation sample 2.
 
-    Caption.
+    In this example we can see the RPN and classifier both miss a starfish that is on the scale
+    of the stride of the ``ResNet50`` convolutional backbone.
 
 .. figure:: validation/val_3.png
    :scale: 50 %
    :alt: Validation sample 3.
 
-    Caption.
+    Here we see the network correctly identifying a large and visually obvious starfish, however the RPN
+    and classifier layers struggle with localization.
    
 .. figure:: validation/val_4.png
    :scale: 50 %
    :alt: Validation sample 4.
 
-    Caption.
+.. figure:: validation/val_1.png
+   :scale: 50 %
+   :alt: Validation sample 1.
 
-These results represent the network state after three cycles of fine tuning. It is possible that further training will
-improve the localization and detection of the network. The losses and recall metrics have not plateaued at this point
-in the training.
+   In these image we can see a number of false positives clustered around the image edges. It is 
+   possible that this is an edge effect in the convolutional backbone.
+
+These results represent the network state after four cycles of fine tuning. It is possible although unlikely 
+that further training will improve the localization and detection of the network as the losses had already plateaued.
+
+We suspect that the major limiting factor of this network is the architecture of the convolutional backbone. 
+In the future we would opt for something with a significantly smaller effective stride, perhaps upsampling and 
+stacking the final and penultimate convolutional layers of a ``VGG-16`` backbone.
+
+Another option is to simply upsample the images such that the visual features of the starfish would be similar to 
+the visual features in ``ImageNet`` data. We rejected this option as computationally prohibitive given our resources.
 
 Future directions
 =================
 
-There are a number of ways in which this algorithm could be improved. In no particular order,
+There are a number of ways in which we think this algorithm could be improved. In no particular order,
 here are number of ideas that we considered but did not have time to pursue.
 
 Training schedule improvements
@@ -130,16 +141,20 @@ Training schedule improvements
 
 - **Change the initialization of the networks**: We found that the early training of the RPN and classifier were quite slow and required significant amounts of weight decay and a fairly aggressive gradient clip. This could be mitigated by smarter choices of initial random weights.
 
-- **Implement label smoothing in the classifier**: The classifier is prone to overconfidence assigning classification scores of 0.0 or 1.0 to regions. This could be mitigated by label smoothing in the classifier loss function.
+- **Implement label smoothing in the classifier**: The classifier is prone to overconfidence assigning classification scores of 0.0 or 1.0 to regions. This could be mitigated by label smoothing in the classifier loss function. In this version the classifier and RPN are given a binary label target based on whether there is any overlap between the ground truth box and the proposed region. A future version should scale the target classification score based on the ground truth IoU (i.e. a stronger overlap should correspond to a higher classification score).
 
 - **Assigning different loss penalties for false positives and false negatives**: The competition is scored with an ``F2`` metric averaged over IoU thresholds between 0.3 and 0.8 meaning that false negatives are more of a problem than false positives. This could be accounted for by assigning different loss penalties for the two types of mistakes.
 
-- **Adding noise to the feature extraction pre-training**: We pre-trained the feature extraction backbone convolutional weights on a starfish / background thumbnail classification task. To do this we placed a global average pool and dense layer on the output of the convolutional layers that were subsequently discarded after pre-training. One possible improvement would be to place a Gaussian noise augmentation and an L2 regularization term after the global average pool to create a simpler boundary between starfish and background regions in the backbone output. This would be similar to (and indeed was inspired by) the resampling step in a variational auto-encoder and could result in a more robust final solution.
+- **Adding noise to the feature extraction pre-training**: We pre-trained the feature extraction backbone convolutional weights on a starfish / background thumbnail classification task. To do this we placed a global average pool and dense layer on the output of the convolutional layers that were subsequently discarded after pre-training. One possible improvement would be to place a Gaussian noise augmentation and an ``L2`` regularization term after the global average pool to create a simpler boundary between starfish and background regions in the backbone output. This would be similar to (and indeed was inspired by) the resampling step in a variational auto-encoder and could result in faster initial training of the RPN and more robust final weights.
+
+- **More diagnostic information from compiled metrics**: In this version the code reports a quantity proportional to the total recall averaged over IoU thresholds between 0.3 and 0.8. More informative metrics would be average recall and precision weighted to account for the large number of background-only images.
+
+- **Try other optimizers**: This model uses SDG with a stepped learning rate and weight decay for all fitting except for the initial backbone training. It would be interesting to perform the same training using the ADAM optimizer.
 
 Architecture improvements
 -------------------------
 
-- **Use an upsampled VGG-16 backbone**: Our network struggled somewhat with localization, likely due to the fact that the backbone stride was on the scale of the starfish in the images themselves. One obvious remedy is to use a convolutional backbone with a smaller effective stride. This could be done by taking the penultimate layer of a pretrained ``VGG-16`` and stacking it with an upsampled version of the final convolutional layer. This has been shown to work in `An Improved Faster R-CNN for Small Object Detection <https://ieeexplore.ieee.org/document/8786135/>`_.
+- **Use an upsampled VGG-16 backbone**: Our network struggled somewhat with localization and detection of small starfish, likely due to the fact that the backbone stride was on the scale of the starfish in the images themselves. One obvious remedy is to use a convolutional backbone with a smaller effective stride. This could be done by taking the penultimate layer of a pretrained ``VGG-16`` and stacking it with an upsampled version of the final convolutional layer. This has been shown to work in `An Improved Faster R-CNN for Small Object Detection <https://ieeexplore.ieee.org/document/8786135/>`_.
 
 - **Use GIoU loss for localization**: This has been shown to improve localization in Faster R-CNN algorithms relative to the L1 bounding box loss that we used. We used `GIoU <https://giou.stanford.edu/>`_ in early versions of the network but later dropped it for simplicity.
 
@@ -150,4 +165,6 @@ Architecture improvements
 Dataset improvements
 --------------------
 
-- **Dropping background-only images**: The input dataset was quite unbalanced with many more background-only images than images containing starfish. We ended up mostly ignoring many of these images by enforcing a balanced sample in the RPN and classifier training. This resulted in unnecessary calls to the feature extraction backbone which slowed down trainign. Simply ignoring those images alltogether could have resulted in faster training epochs.
+- **Dropping background-only images**: The input dataset was quite unbalanced with many more background-only images than images containing starfish. We ended up mostly ignoring many of these images by enforcing a balanced sample in the RPN and classifier training. We were unable to get sample reweighting to work reliably. This resulted in unnecessary calls to the feature extraction backbone which slowed down training. Simply ignoring some of these images alltogether could have resulted in faster training epochs.
+
+- **Better feature scaling**: This model uses the default feature scaling inherited from the ``ImageNet`` dataset before the convolutional backbone. The images in this dataset are significantly more monochromatic and bluer than the ``ImageNet`` dataset meaning we would likely see improvement from feature scaling better matched to this dataset.
